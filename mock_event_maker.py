@@ -4,9 +4,7 @@ import pandas as pd
 from astropy.cosmology import FlatLambdaCDM
 import sys
 import astropy.units as u
-from utils import uniform_shell_sampler, spherical2cartesian, cartesian2spherical, fast_z_at_value, make_nice_plots
-from scipy.optimize import root_scalar
-from scipy.special import erf
+from utils import fast_z_at_value, make_nice_plots
 from mock_catalog_maker import MockCatalog
 from mock_skymap_maker import MockSkymap
 
@@ -15,13 +13,13 @@ class MockEvents(MockSkymap):
 
     def __init__(self,
                  
-                 something_else,
+                 param_dict: dict,
 
-                 n_events: int = None,
-                 f_agn: float = None,
-                 catalog: MockCatalog = None,  
-                 z_max: float = None,
-                 skymap_cl: float = None,
+                 n_events: int,
+                 f_agn: float,
+                 catalog: MockCatalog,  
+                 z_max: float,
+                 skymap_cl: float,
                  cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)):
         
         super().__init__(n_events,
@@ -31,7 +29,7 @@ class MockEvents(MockSkymap):
                          skymap_cl,
                          cosmology)  # Inherit all properties and methods from MockSkymap
         
-        self.something_else = something_else
+        self.param_dict = param_dict
         
 
     def get_posteriors(self):
@@ -49,18 +47,17 @@ if __name__ == '__main__':
     GW_BOX_SIZE = 30  # Radius of the GW box in redshift
     
     Catalog = MockCatalog(n_agn=N_TOT,
-                            grid_radius=GRID_SIZE,
+                            max_redshift=GRID_SIZE,
                             gw_box_radius=GW_BOX_SIZE,
                             completeness=1)
-    cat = Catalog.complete_catalog
 
     n_events = 100
     f_agn = 0.5
     cl = 0.999
-    GWEvents = MockEvents(something_else=1,
+    GWEvents = MockEvents(param_dict=None,
                           n_events=n_events,
                           f_agn=f_agn,
-                          catalog=cat.loc[cat['in_gw_box'] == True],  
+                          catalog=Catalog,  
                           z_max=GW_BOX_SIZE,
                           skymap_cl=cl)
 

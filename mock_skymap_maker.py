@@ -14,11 +14,11 @@ class MockSkymap():
 
     def __init__(
         self,
-        n_events: int = None,
-        f_agn: float = None,
-        catalog: MockCatalog = None,  
-        z_max: float = None,
-        skymap_cl: float = None,
+        n_events: int,
+        f_agn: float,
+        catalog: MockCatalog,  
+        z_max: float,
+        skymap_cl: float,
         cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
     ):
 
@@ -34,7 +34,9 @@ class MockSkymap():
         self.n_alt_events = self.n_events - self.n_agn_events
         self.skymap_cl = skymap_cl
         self.cosmo = cosmology
-        self.catalog = catalog  # From which to generate AGN GWs
+        
+        cat = catalog.complete_catalog
+        self.catalog = cat.loc[cat['in_gw_box'] == True]  # From which to generate AGN GWs
         self.z_max = z_max  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
 
         if (self.n_agn_events != 0) and (len(self.catalog) == 0):
@@ -160,17 +162,17 @@ if __name__ == '__main__':
     GRID_SIZE = 10  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 2  # Radius of the GW box in redshift
     
-    catalog = MockCatalog(n_agn=N_TOT,
-                            grid_radius=GRID_SIZE,
+    Catalog = MockCatalog(n_agn=N_TOT,
+                            max_redshift=GRID_SIZE,
                             gw_box_radius=GW_BOX_SIZE,
-                            completeness=1).complete_catalog
+                            completeness=1)
 
     n_events = 3
     f_agn = 0.5
     skymap_cl = 0.999
     SkyMaps = MockSkymap(n_events=n_events,
                             f_agn=f_agn,
-                            catalog=catalog.loc[catalog['in_gw_box'] == True],  
+                            catalog=Catalog,  
                             z_max=GW_BOX_SIZE,
                             skymap_cl=skymap_cl)
     

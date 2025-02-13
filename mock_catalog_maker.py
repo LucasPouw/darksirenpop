@@ -12,17 +12,17 @@ class MockCatalog():
     
     def __init__(
         self,
-        grid_radius: float = None,
-        gw_box_radius: float = None,
+        max_redshift: float,
+        gw_box_radius: float,
         n_bins: int = None,
         n_agn: int = None,
         n_agn_per_shell: list = None,
         shell_radii: list = None,  # TODO: use this to make shell_radii variable, fix some degeneracy with n_bins and n_agn_per_shell
-        completeness: float = None,
+        completeness: float = 1.,
         cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
     ):
         """
-        :param grid_radius: redshift of outer boundary of simulated universe
+        :param max_redshift: redshift of outer boundary of simulated universe
         :param gw_box_radius: redshift within which GWs can be generated
         :param n_bins: number of redshift bins
         :param n_agn_per_shell: number of AGN in each redshift bin
@@ -32,7 +32,7 @@ class MockCatalog():
         TODO: add functionality to make healpix map from catalog
         """
         
-        self.grid_radius = grid_radius
+        self.max_redshift = max_redshift
         self.gw_box_radius = gw_box_radius
         self.completeness = completeness
         self.cosmo = cosmology
@@ -45,7 +45,7 @@ class MockCatalog():
                 self.n_agn = n_agn
                 self.n_bins = 2  # We treat the GW box and the outer edge as 2 bins
                 
-                fraction_in_gw_box = self.cosmo.comoving_distance(self.gw_box_radius)**3 / (self.cosmo.comoving_distance(self.grid_radius)**3)
+                fraction_in_gw_box = self.cosmo.comoving_distance(self.gw_box_radius)**3 / (self.cosmo.comoving_distance(self.max_redshift)**3)
                 self.n_agn_per_shell = np.around([fraction_in_gw_box * self.n_agn, (1 - fraction_in_gw_box) * self.n_agn]).astype(int)
                 self.uniform_flag = True
         else:
@@ -55,10 +55,10 @@ class MockCatalog():
             self.uniform_flag = False
 
         if self.uniform_flag:
-            shell_radii_z = np.array([self.gw_box_radius, self.grid_radius])
+            shell_radii_z = np.array([self.gw_box_radius, self.max_redshift])
             self.shell_radii = self.cosmo.comoving_distance(shell_radii_z).value     
         else:
-            shell_radii_z = np.linspace(0, self.grid_radius, self.n_bins + 1)[1:]  # TODO: distribute redshift bins such that the enclosed volume is constant
+            shell_radii_z = np.linspace(0, self.max_redshift, self.n_bins + 1)[1:]  # TODO: distribute redshift bins such that the enclosed volume is constant
             self.shell_radii = self.cosmo.comoving_distance(shell_radii_z).value
 
         self.complete_catalog = pd.DataFrame()
@@ -76,7 +76,7 @@ class MockCatalog():
 
     def measure_redshift(self):
         # redshift_meas = np.random.normal(loc=self.complete_catalog['redshift'], scale=self.complete_catalog['redshift_error'])
-        z_low, z_high = 0, self.grid_radius
+        z_low, z_high = 0, self.max_redshift
         a, b = (z_low - self.complete_catalog['redshift']) * self.complete_catalog['redshift_error']**(-1), (z_high - self.complete_catalog['redshift']) * self.complete_catalog['redshift_error']**(-1)
         redshift_meas = truncnorm.rvs(a, b, loc=self.complete_catalog['redshift'], scale=self.complete_catalog['redshift_error'])
 
@@ -214,7 +214,7 @@ class MockCatalog():
                     s=1,
                     color='orange',
                     label='Incomplete AGN catalog')
-        ax.set_rmax(self.cosmo.comoving_distance(self.grid_radius).value)
+        ax.set_rmax(self.cosmo.comoving_distance(self.max_redshift).value)
         ax.grid(False)
         ax.set_yticklabels([])
         ax.set_xticklabels([])
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     GW_BOX_SIZE = 1  # Radius of the GW box in redshift
     
     ShaiHulud = MockCatalog(n_agn=N_TOT,
-                            grid_radius=GRID_SIZE,
+                            max_redshift=GRID_SIZE,
                             gw_box_radius=GW_BOX_SIZE,
                             completeness=0.2)  # Shai Hulud is the Maker of the Deep Desert...and also this catalog
 

@@ -32,7 +32,7 @@ def kdtree_in_skymap(points, centers, radii):
 def get_num_dens(MockSkymaps, MockCatalog):
     ''' Assuming uniform AGN number density. TODO: Change to weighted/pixelated. '''
     cosmo = MockCatalog.cosmo
-    uniform_agn_numdens = len(MockCatalog.incomplete_catalog) / cosmo.comoving_volume(MockCatalog.grid_radius).value
+    uniform_agn_numdens = len(MockCatalog.incomplete_catalog) / cosmo.comoving_volume(MockCatalog.max_redshift).value
 
     # print(uniform_agn_numdens)
 
@@ -118,17 +118,16 @@ if __name__ == '__main__':
     GW_BOX_SIZE = 30  # Radius of the GW box in redshift
     
     Catalog = MockCatalog(n_agn=N_TOT,
-                            grid_radius=GRID_SIZE,
+                            max_redshift=GRID_SIZE,
                             gw_box_radius=GW_BOX_SIZE,
                             completeness=1)
-    cat = Catalog.complete_catalog
 
     n_events = 10000
     f_agn = 0.5
     cl = 0.999
     SkyMaps = MockSkymap(n_events=n_events,
                             f_agn=f_agn,
-                            catalog=cat.loc[cat['in_gw_box'] == True],  
+                            catalog=Catalog,  
                             z_max=GW_BOX_SIZE,
                             skymap_cl=cl)
     
