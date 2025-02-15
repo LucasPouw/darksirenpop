@@ -16,8 +16,7 @@ class MockSkymap():
         self,
         n_events: int,
         f_agn: float,
-        catalog: MockCatalog,  
-        z_max: float,
+        catalog: MockCatalog,
         skymap_cl: float,
         cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
     ):
@@ -28,6 +27,8 @@ class MockSkymap():
         TODO: documentation
         """
 
+        assert isinstance(catalog, MockCatalog), 'Provided catalog is not MockCatalog instance.'
+
         self.n_events = n_events
         self.f_agn = f_agn
         self.n_agn_events = round(self.f_agn * self.n_events)
@@ -35,15 +36,28 @@ class MockSkymap():
         self.skymap_cl = skymap_cl
         self.cosmo = cosmology
         
+        self.MockCatalog = catalog  # Used to access completeness in likelihood, inheritance is not necessary
         cat = catalog.complete_catalog
         self.catalog = cat.loc[cat['in_gw_box'] == True]  # From which to generate AGN GWs
-        self.z_max = z_max  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
+        self.z_max = catalog.gw_box_radius  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
 
-        if (self.n_agn_events != 0) and (len(self.catalog) == 0):
-            sys.exit('\nTried to generate GWs from AGN, but GW box is empty.\nExiting...')
+        if (self.n_agn_events != 0) and (len(self.catalog) == 0) and (len(cat) != 0):
+            sys.exit('\nTried to generate GWs from AGN, but only found AGN outside the GW box. Either provide more AGN or put f_agn = 0.\nExiting...')
         
+        # columns=['r', 'theta', 'phi',
+        #         'x', 'y', 'z',
+        #         'redshift', 
+        #         'r_meas_center', 'theta_meas_center', 'phi_meas_center',
+        #         'x_meas_center', 'y_meas_center', 'z_meas_center',
+        #         'redshift_meas_center',
+        #         'sigma', 'loc_vol', 'loc_rad',
+        #         'from_agn']
         self.properties = pd.DataFrame()
-        self.make_skymaps()
+        if len(cat) != 0:
+            print('\nFound AGN in GW box. Generating skymaps...')
+            self.make_skymaps()
+        else:
+            print('\nEmpty AGN catalog provided. Not generating skymaps.')
 
         self.posteriors = None  # Call get_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.properties
 
@@ -86,7 +100,7 @@ class MockSkymap():
             temp_alt_df['redshift'] = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
             temp_alt_df['from_agn'] = np.zeros(self.n_alt_events, dtype=bool)
 
-            self.properties = pd.concat([self.properties, temp_alt_df], ignore_index=True)
+            self.properties = pd.concat([self.properties, temp_alt_df], ignore_index=True)  # TODO: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
 
             del temp_alt_df
 
@@ -158,7 +172,7 @@ if __name__ == '__main__':
 
     make_nice_plots()
 
-    N_TOT = 100000
+    N_TOT = 10000
     GRID_SIZE = 10  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 2  # Radius of the GW box in redshift
     
@@ -171,10 +185,9 @@ if __name__ == '__main__':
     f_agn = 0.5
     skymap_cl = 0.999
     SkyMaps = MockSkymap(n_events=n_events,
-                            f_agn=f_agn,
-                            catalog=Catalog,  
-                            z_max=GW_BOX_SIZE,
-                            skymap_cl=skymap_cl)
+                        f_agn=f_agn,
+                        catalog=Catalog,
+                        skymap_cl=skymap_cl)
     
     colors = ['red', 'blue', 'black']
     posteriors = ['x', 'y', 'z', 'r', 'theta', 'phi', 'redshift']

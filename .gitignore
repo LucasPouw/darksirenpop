@@ -1,3 +1,6 @@
 __pycache__/mock_catalog_maker.cpython-310.pyc
 __pycache__/mock_skymap_maker.cpython-310.pyc
 __pycache__/utils.cpython-310.pyc
+__pycache__/mock_event_maker.cpython-310.pyc
+__pycache__/custom_math_priors.cpython-310.pyc
+__pycache__/priors.cpython-310.pyc

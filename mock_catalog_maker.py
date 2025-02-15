@@ -45,7 +45,7 @@ class MockCatalog():
                 self.n_agn = n_agn
                 self.n_bins = 2  # We treat the GW box and the outer edge as 2 bins
                 
-                fraction_in_gw_box = self.cosmo.comoving_distance(self.gw_box_radius)**3 / (self.cosmo.comoving_distance(self.max_redshift)**3)
+                fraction_in_gw_box = (self.cosmo.comoving_distance(self.gw_box_radius) / self.cosmo.comoving_distance(self.max_redshift))**3
                 self.n_agn_per_shell = np.around([fraction_in_gw_box * self.n_agn, (1 - fraction_in_gw_box) * self.n_agn]).astype(int)
                 self.uniform_flag = True
         else:
@@ -61,8 +61,14 @@ class MockCatalog():
             shell_radii_z = np.linspace(0, self.max_redshift, self.n_bins + 1)[1:]  # TODO: distribute redshift bins such that the enclosed volume is constant
             self.shell_radii = self.cosmo.comoving_distance(shell_radii_z).value
 
-        self.complete_catalog = pd.DataFrame()
-        self.make_complete_catalog()
+        self.complete_catalog = pd.DataFrame(columns=['r', 'theta', 'phi', 
+                                                      'x', 'y', 'z', 
+                                                      'redshift', 'redshift_error', 'redshift_meas', 
+                                                      'r_meas', 'theta_meas', 'phi_meas', 
+                                                      'x_meas', 'y_meas', 'z_meas', 
+                                                      'detected', 'in_gw_box'])
+        if self.n_agn != 0:
+            self.make_complete_catalog()
 
         self.incomplete_catalog = self.complete_catalog.loc[self.complete_catalog['detected'] == True]
     
@@ -71,7 +77,7 @@ class MockCatalog():
         redshift_true = fast_z_at_value(self.cosmo.comoving_distance, comoving_distance)
         redshift_error = 0.01 * (1 + redshift_true)**3  # Inspired by https://arxiv.org/pdf/2212.08694 and catches dynamic range in Quaia, though not the actual distribution
         redshift_error[redshift_error > 1] = 1  # TODO: maybe look at relative errors?
-        return redshift_true, redshift_error / 10
+        return redshift_true, redshift_error
     
 
     def measure_redshift(self):
@@ -180,7 +186,7 @@ class MockCatalog():
         print('Detected AGN added to catalog')
     
 
-    def plot_catalogs(self, save=None):
+    def plot_catalogs(self, save=None):  # TODO: probably delete this because projection isnt really useful?
 
         fig, ax = plt.subplots(figsize=(8,8), subplot_kw={'projection': 'polar'})
         for i, shell_radius in enumerate(self.shell_radii):
@@ -233,7 +239,7 @@ if __name__ == '__main__':
 
     make_nice_plots()
     
-    N_TOT = 100000
+    N_TOT = 10000
     GRID_SIZE = 5  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 1  # Radius of the GW box in redshift
     
@@ -242,7 +248,6 @@ if __name__ == '__main__':
                             gw_box_radius=GW_BOX_SIZE,
                             completeness=0.2)  # Shai Hulud is the Maker of the Deep Desert...and also this catalog
 
-    
     ### TESTING COORDINATE DISTRIBUTIONS ###
     catalog = ShaiHulud.complete_catalog
     fig = plt.figure(figsize=(10,10))

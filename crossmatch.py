@@ -6,6 +6,7 @@ from scipy.stats import gaussian_kde as kde
 from utils import make_nice_plots, fast_z_at_value, spherical2cartesian
 from mock_skymap_maker import MockSkymap
 from mock_catalog_maker import MockCatalog
+from mock_event_maker import MockEvent
 import sys
 import astropy.units as u
 from scipy.stats import norm
@@ -39,19 +40,15 @@ def get_num_dens(MockSkymaps, MockCatalog):
     MockSkymaps.properties['agn_numdens'] = np.tile(uniform_agn_numdens, MockSkymaps.n_events)  # All maps have the same AGN number density for now
 
 
-def crossmatch_skymaps(MockSkymaps, MockCatalog, true_agn_pos=False):
+def _crossmatch_skymaps(MockSkymaps, MockCatalog, true_agn_pos=False):
 
-    try:
-        if MockSkymaps.posteriors == None:
-            MockSkymaps.get_skymap_posteriors()
-    except ValueError:  # In this case the posteriors already exist and we don't want to overwrite them
-        pass
+    '''MockSkymaps can be either MockSkymap or MockEvent object'''
 
     incomplete_cat = MockCatalog.incomplete_catalog
 
     skymap_centers_numpy = MockSkymaps.properties[['x_meas_center', 'y_meas_center', 'z_meas_center']].to_numpy()
     
-    if true_agn_pos:
+    if true_agn_pos:  # Neglect redshift errors and use true AGN positions
         incomplete_cat_cartesians_numpy = incomplete_cat[['x', 'y', 'z']].to_numpy()
     else:
         incomplete_cat_cartesians_numpy = incomplete_cat[['x_meas', 'y_meas', 'z_meas']].to_numpy()
@@ -103,17 +100,44 @@ def crossmatch_skymaps(MockSkymaps, MockCatalog, true_agn_pos=False):
     return total_gw_prob
 
 
-def crossmatch_event_params():
+def _crossmatch_intrinsic_params():
     # crossmatch_skymaps(MockSkymaps, MockCatalog, true_agn_pos=False)
     # do_other_parameters
     return
+
+
+def crossmatch(MockEvents, MockCatalog, use_intrinsic_params=False, true_agn_pos=False):
+
+    try:
+        if MockEvents.posteriors == None:
+            MockEvents.get_posteriors()
+    except ValueError:  # In this case the posteriors already exist and we don't want to overwrite them
+        pass
+
+    incomplete_cat = MockCatalog.incomplete_catalog
+
+    if len(incomplete_cat) == 0:
+        print('\nWARNING: AGN catalog is empty. Not using extrinsic parameters in this analysis!\n')
+        p_agn_sky = np.ones(MockEvents.n_events)
+        p_alt_sky = np.ones(MockEvents.n_events)
+    else:   
+        p_agn_sky = _crossmatch_skymaps(MockEvents, MockCatalog, true_agn_pos=False)
+        p_alt_sky = MockEvents.skymap_cl / MockEvents.properties['loc_vol']
+    
+    if use_intrinsic_params:
+        p_agn_intrinsic, p_alt_intrinsic = _crossmatch_intrinsic_params()
+    else:
+        p_agn_intrinsic = np.ones(MockEvents.n_events)
+        p_alt_intrinsic = np.ones(MockEvents.n_events)
+
+    return p_agn_sky * p_agn_intrinsic, p_alt_sky * p_alt_intrinsic
 
 
 if __name__ == '__main__':
 
     make_nice_plots()
 
-    N_TOT = 10000
+    N_TOT = 1
     GRID_SIZE = 40  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 30  # Radius of the GW box in redshift
     
@@ -125,28 +149,29 @@ if __name__ == '__main__':
     n_events = 10000
     f_agn = 0.5
     cl = 0.999
-    SkyMaps = MockSkymap(n_events=n_events,
-                            f_agn=f_agn,
-                            catalog=Catalog,  
-                            z_max=GW_BOX_SIZE,
-                            skymap_cl=cl)
+    GWEvents = MockEvent(
+                        n_events=n_events,
+                        f_agn=f_agn,
+                        catalog=Catalog,
+                        skymap_cl=cl
+                    )
     
-    get_num_dens(SkyMaps, Catalog)  # TODO: Changes in principle after each measuring of the catalog, right? Check this.
+    get_num_dens(GWEvents, Catalog)  # TODO: Changes in principle after each measuring of the catalog, right? Check this.
 
     n_catalog_resamps = 100
     skyprobs = np.zeros(n_events)
     for i in tqdm(range(n_catalog_resamps)):
-        Catalog.measure_redshift()
-        skyprobs += crossmatch_skymaps(MockCatalog=Catalog, MockSkymaps=SkyMaps, true_agn_pos=False)
-    skyprobs *= float(n_catalog_resamps)**(-1)
+        Catalog.measure_redshift()  # TODO: Does not work in empty-cat case, but shouldn't be called then anyway
+        skyprobs += crossmatch(MockCatalog=Catalog, MockEvents=GWEvents, use_intrinsic_params=False, true_agn_pos=False)[0]
+    skyprobs /= n_catalog_resamps
 
     # print(np.sum(skyprobs == 0), 'samped')
 
     # skyprobs_truepos = crossmatch_skymaps(MockCatalog=Catalog, MockSkymaps=SkyMaps, true_agn_pos=True)
     # print(np.sum(skyprobs_truepos == 0), 'truepos')
 
-    p_alt = cl / SkyMaps.properties['loc_vol']
-    from_agn = SkyMaps.properties['from_agn']
+    p_alt = cl / GWEvents.properties['loc_vol']
+    from_agn = GWEvents.properties['from_agn']
 
     fig, ax = plt.subplots(figsize=(10, 10))
     xmin = -12
@@ -167,7 +192,7 @@ if __name__ == '__main__':
 
     #%%
 
-    # print(skyprobs, 0.999 / SkyMaps.properties['loc_vol'])
+    # print(skyprobs, 0.999 / GWEvents.properties['loc_vol'])
 
 
 
@@ -210,15 +235,15 @@ if __name__ == '__main__':
         # n_maps = 1000
         # f_agn = 1
         # cl = 0.999
-        # SkyMaps = MockSkymap(n_maps=n_maps,
+        # GWEvents = MockSkymap(n_maps=n_maps,
         #                         f_agn=f_agn,
         #                         catalog=cat.loc[cat['in_gw_box'] == True],  
         #                         z_max=GW_BOX_SIZE,
         #                         CL=cl)
         
-    #     # print(SkyMaps.properties['loc_rad'])
+    #     # print(GWEvents.properties['loc_rad'])
         
-    #     cls[i] = crossmatch_skymaps(SkyMaps, Catalog)
+    #     cls[i] = crossmatch_skymaps(GWEvents, Catalog)
     # plt.hist(cls, bins=10, density=True, histtype='step', linewidth=5)
     # plt.legend()
     # plt.xlabel('Fraction of GWs with host AGN in 99.9% CL')
@@ -230,7 +255,7 @@ if __name__ == '__main__':
     # # gw_probs = np.zeros((n_maps, n_iter))
     # # for i in tqdm(range(n_iter)):
     # #     Catalog.measure_redshift()
-    # #     gw_probs[:, i] = crossmatch_skymaps(SkyMaps, Catalog)
+    # #     gw_probs[:, i] = crossmatch_skymaps(GWEvents, Catalog)
 
     # # plt.figure()
     # # for i in range(3):
