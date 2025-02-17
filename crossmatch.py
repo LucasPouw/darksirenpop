@@ -14,9 +14,6 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 
 
-colors = ['black', 'blue', 'red']
-
-
 def gaussian_3d(xyz, mus, sigmas):
     x, y, z = xyz
     mu_x, mu_y, mu_z = mus
@@ -114,6 +111,7 @@ def crossmatch(MockEvents, MockCatalog, use_intrinsic_params=False, true_agn_pos
     except ValueError:  # In this case the posteriors already exist and we don't want to overwrite them
         pass
 
+    # Handling extrinsic parameters
     incomplete_cat = MockCatalog.incomplete_catalog
 
     if len(incomplete_cat) == 0:
@@ -121,9 +119,10 @@ def crossmatch(MockEvents, MockCatalog, use_intrinsic_params=False, true_agn_pos
         p_agn_sky = np.ones(MockEvents.n_events)
         p_alt_sky = np.ones(MockEvents.n_events)
     else:   
-        p_agn_sky = _crossmatch_skymaps(MockEvents, MockCatalog, true_agn_pos=False)
+        p_agn_sky = _crossmatch_skymaps(MockEvents, MockCatalog, true_agn_pos=true_agn_pos)
         p_alt_sky = MockEvents.skymap_cl / MockEvents.properties['loc_vol']
     
+    # Handling intrinsic parameters
     if use_intrinsic_params:
         p_agn_intrinsic, p_alt_intrinsic = _crossmatch_intrinsic_params()
     else:
@@ -135,9 +134,10 @@ def crossmatch(MockEvents, MockCatalog, use_intrinsic_params=False, true_agn_pos
 
 if __name__ == '__main__':
 
+    colors = ['black', 'blue', 'red']
     make_nice_plots()
 
-    N_TOT = 1
+    N_TOT = 100000
     GRID_SIZE = 40  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 30  # Radius of the GW box in redshift
     
@@ -162,20 +162,32 @@ if __name__ == '__main__':
     skyprobs = np.zeros(n_events)
     for i in tqdm(range(n_catalog_resamps)):
         Catalog.measure_redshift()  # TODO: Does not work in empty-cat case, but shouldn't be called then anyway
-        skyprobs += crossmatch(MockCatalog=Catalog, MockEvents=GWEvents, use_intrinsic_params=False, true_agn_pos=False)[0]
+        skyprobs += crossmatch(MockCatalog=Catalog, MockEvents=GWEvents, use_intrinsic_params=False, true_agn_pos=False)[0]  # TODO: Note that we also return p_alt, but not yet needed now
     skyprobs /= n_catalog_resamps
 
     # print(np.sum(skyprobs == 0), 'samped')
 
-    # skyprobs_truepos = crossmatch_skymaps(MockCatalog=Catalog, MockSkymaps=SkyMaps, true_agn_pos=True)
+    skyprobs_truepos = crossmatch(MockCatalog=Catalog, MockEvents=GWEvents, true_agn_pos=True)[0]
+    
+    xmin = -12
+    xmax = 6
+    
+    bins = np.logspace(xmin, xmax, 30)
+    plt.figure(figsize=(8,6))
+    plt.hist(skyprobs_truepos, bins=bins, density=True, histtype='step', linewidth=3, color='red', label='w/o z-error')
+    plt.hist(skyprobs, bins=bins, density=True, histtype='step', linewidth=3, color='blue', label='w z-error')
+    plt.legend()
+    plt.loglog()
+    plt.xlabel(r'$p_{\rm agn}$')
+    plt.ylabel('Probability density')
+    plt.show()
+    
     # print(np.sum(skyprobs_truepos == 0), 'truepos')
 
     p_alt = cl / GWEvents.properties['loc_vol']
     from_agn = GWEvents.properties['from_agn']
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    xmin = -12
-    xmax = 6
     xx = np.logspace(xmin, xmax, 100)
     ax.plot(xx, xx, linestyle='dashed', color='black', zorder=6)
     ax.scatter(p_alt[from_agn], skyprobs[from_agn], color='blue', alpha=0.3, marker='.', zorder=5, label='From AGN')

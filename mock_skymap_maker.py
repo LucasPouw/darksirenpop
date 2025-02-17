@@ -18,6 +18,7 @@ class MockSkymap():
         f_agn: float,
         catalog: MockCatalog,
         skymap_cl: float,
+        n_posterior_samples: int = 1000, # TODO: make n_posterior_samples variable per GW event or resample GW posteriors to minimum of ensemble
         cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
     ):
 
@@ -34,6 +35,7 @@ class MockSkymap():
         self.n_agn_events = round(self.f_agn * self.n_events)
         self.n_alt_events = self.n_events - self.n_agn_events
         self.skymap_cl = skymap_cl
+        self.n_posterior_samples = n_posterior_samples
         self.cosmo = cosmology
         
         self.MockCatalog = catalog  # Used to access completeness in likelihood, inheritance is not necessary
@@ -59,7 +61,7 @@ class MockSkymap():
         else:
             print('\nEmpty AGN catalog provided. Not generating skymaps.')
 
-        self.posteriors = None  # Call get_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.properties
+        self.posteriors = None  # Call get_skymap_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.properties
 
     
     def select_agn_hosts(self):
@@ -119,12 +121,12 @@ class MockSkymap():
         return 4 * np.pi * radii**3 / 3, radii
 
     
-    def make_skymap_posteriors(self, sigmas, n_posterior_samples=1000):  # TODO: make n_posterior_samples variable per GW event
+    def make_skymap_posteriors(self, sigmas):
         xyz_true = self.properties[['x', 'y', 'z']].to_numpy()
         std = np.tile(sigmas[:, np.newaxis], 3)  # Same sigma for x, y and z
         xyz_meas = np.random.normal(loc=xyz_true, scale=std, size=(self.n_events, 3))
 
-        xyz_posteriors = np.random.normal(loc=xyz_meas[:, np.newaxis, :], scale=std[:, np.newaxis, :], size=(self.n_events, n_posterior_samples, 3))
+        xyz_posteriors = np.random.normal(loc=xyz_meas[:, np.newaxis, :], scale=std[:, np.newaxis, :], size=(self.n_events, self.n_posterior_samples, 3))
         x, y, z = xyz_posteriors[:, :, 0], xyz_posteriors[:, :, 1], xyz_posteriors[:, :, 2]
         r, theta, phi = cartesian2spherical(x, y, z)
         redshift = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)

@@ -27,13 +27,19 @@ because the p_agn and p_alt change according to the population params. This is n
 def fagn_fixedpop(fagn, total_prob_agn: np.ndarray, total_prob_alt: np.ndarray, events: MockEvent):
     """
     Likelihood for estimating ONLY f_agn, while all other population parameters remain fixed.
-
-    crossmatch_result should contain the log(?) prob for all population prior models in the agn and alt case.
     """
+    
+    try:
+        total_prob_agn = np.array(total_prob_agn)[:, np.newaxis]
+        total_prob_alt = np.array(total_prob_alt)[:, np.newaxis]
+    except IndexError:  # If only one GW is used
+        total_prob_agn = np.array([total_prob_agn])[:, np.newaxis]
+        total_prob_alt = np.array([total_prob_alt])[:, np.newaxis]
+
     fagn_times_fc_fcl_fobsc = fagn * events.skymap_cl * events.MockCatalog.completeness  # TODO: obscuration
-    selection_function = 1  # TODO: gw selection effects
+    log_detection_efficiency = 0  # TODO: gw selection effects
     # print(np.log(fagn_times_fc_fcl_fobsc * total_prob_agn[:, np.newaxis] + (1 - fagn_times_fc_fcl_fobsc) * total_prob_alt[:, np.newaxis]))
-    return np.sum( np.log(fagn_times_fc_fcl_fobsc * total_prob_agn[:, np.newaxis] + (1 - fagn_times_fc_fcl_fobsc) * total_prob_alt[:, np.newaxis]), axis=0 )
+    return np.sum( np.log(fagn_times_fc_fcl_fobsc * total_prob_agn + (1 - fagn_times_fc_fcl_fobsc) * total_prob_alt), axis=0 ) - log_detection_efficiency**len(total_prob_agn)
 
 
 def _get_population_param_priors(parameter_dict):
@@ -140,9 +146,11 @@ if __name__ == '__main__':
     pmin = 0.01
     N = 10
     f_agn_arr = np.linspace(0.01, 1., 100)
-    fake_agn_prob = np.tile(pmin, N)
-    fake_agn_prob[:N//2] = pmax
-    fake_alt_prob = np.tile(pmax, N)
+    fake_agn_prob = np.array([1.])
+    fake_alt_prob = np.array([0.])
+    # fake_agn_prob = np.tile(pmin, N)
+    # fake_agn_prob[:N//2] = pmax
+    # fake_alt_prob = np.tile(pmax, N)
     # fake_alt_prob[:N//2] = pmin
 
     log_llh = fagn_fixedpop(f_agn_arr, fake_agn_prob, fake_alt_prob, GWEvents)

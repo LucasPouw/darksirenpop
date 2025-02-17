@@ -1,6 +1,7 @@
 """
-Priors
-Ignacio Magana, Rachel Gray, Sergio Vallejo-Peña, Antonio Enea Romano 
+Population priors
+Ignacio Magana, Rachel Gray, Sergio Vallejo-Peña, Antonio Enea Romano
+Lucas Pouw
 
 From gwcosmo by Rachel Gray et al.: https://git.ligo.org/lscsoft/gwcosmo
 """
@@ -17,7 +18,7 @@ class PrimaryPrior(object):
     """
 
     def __init__(self):
-        self.param_label = 'primary mass'  # Used by MockEvent class
+        self.param_label = ['mass_1']  # Used by MockEvent class
 
     def update_parameters(self, param_dict):
         """
@@ -79,6 +80,28 @@ class PrimaryPrior(object):
 
         return to_ret
 
+    def sample(self, Nsample):
+        """
+        *Not used in O4, due to the use of injections instead of Pdet*
+        This method samples from the joint probability :math:`p(m_1,m_2)`
+
+        Parameters
+        ----------
+        Nsample: int
+            Number of samples you want
+        """
+
+        vals_m1 = np.random.rand(Nsample)
+        m1_trials = np.logspace(np.log10(self.mdis['mass_1'].minimum), np.log10(self.mdis['mass_1'].maximum), 10000)
+        cdf_m1_trials = self.mdis['mass_1'].cdf(m1_trials)
+        m1_trials = np.log10(m1_trials)
+
+        # At very high or very low values of x, the CDF evaluates to 0 or 1 for all x. We only want a 0 or 1 once.
+        _, indxm1 = np.unique(cdf_m1_trials, return_index=True)
+        interpo_icdf_m1 = interp1d(cdf_m1_trials[indxm1], m1_trials[indxm1], bounds_error=False, fill_value=(m1_trials[0], m1_trials[-1]))
+        mass_1_samples = 10**interpo_icdf_m1(vals_m1)
+        return (mass_1_samples,)
+
 
 class PrimaryMass_gaussian(PrimaryPrior):
 
@@ -105,7 +128,7 @@ class m_priors(object):
     """
 
     def __init__(self):
-        self.param_label = 'primary mass and secondary mass'  # Used by MockEvent class
+        self.param_label = ['mass_1', 'mass_2']  # Used by MockEvent class
 
     def update_parameters(self, param_dict):
         """
@@ -192,6 +215,7 @@ class m_priors(object):
         m1_trials = np.log10(m1_trials)
         m2_trials = np.log10(m2_trials)
 
+        # At very high or very low values of x, the CDF evaluates to 0 or 1 for all x. We only want a 0 or 1 once.
         _,indxm1 = np.unique(cdf_m1_trials,return_index=True)
         _,indxm2 = np.unique(cdf_m2_trials,return_index=True)
 
