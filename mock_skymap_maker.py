@@ -23,7 +23,7 @@ class MockSkymap():
     ):
 
         """
-        Building skymap dataframe. 
+        Building skymap dataframe. Not meant to be called directly. Only access through MockEvent.
         
         TODO: documentation
         """
@@ -45,23 +45,6 @@ class MockSkymap():
 
         if (self.n_agn_events != 0) and (len(self.catalog) == 0) and (len(cat) != 0):
             sys.exit('\nTried to generate GWs from AGN, but only found AGN outside the GW box. Either provide more AGN or put f_agn = 0.\nExiting...')
-        
-        # columns=['r', 'theta', 'phi',
-        #         'x', 'y', 'z',
-        #         'redshift', 
-        #         'r_meas_center', 'theta_meas_center', 'phi_meas_center',
-        #         'x_meas_center', 'y_meas_center', 'z_meas_center',
-        #         'redshift_meas_center',
-        #         'sigma', 'loc_vol', 'loc_rad',
-        #         'from_agn']
-        self.properties = pd.DataFrame()
-        if len(cat) != 0:
-            print('\nFound AGN in GW box. Generating skymaps...')
-            self.make_skymaps()
-        else:
-            print('\nEmpty AGN catalog provided. Not generating skymaps.')
-
-        self.posteriors = None  # Call get_skymap_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.properties
 
     
     def select_agn_hosts(self):

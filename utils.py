@@ -75,8 +75,6 @@ def fast_z_at_value(function, values, num=10000):
 
 
 def check_equal(a, b):
-    # If lengths of array are not equal means
-    # array are not equal
     if len(a) != len(b):
         return False
     return sorted(a) == sorted(b)

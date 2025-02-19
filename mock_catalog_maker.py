@@ -69,6 +69,8 @@ class MockCatalog():
                                                       'detected', 'in_gw_box'])
         if self.n_agn != 0:
             self.make_complete_catalog()
+        else:
+            print('Using empty AGN catalog.')
 
         self.incomplete_catalog = self.complete_catalog.loc[self.complete_catalog['detected'] == True]
     

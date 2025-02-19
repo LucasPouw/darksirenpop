@@ -15,36 +15,51 @@ import json
 
 class MockEvent(MockSkymap):
 
-    def __init__(self,
-                 n_events: int,
-                 f_agn: float,
-                 catalog: MockCatalog,
-                 model_dict: dict = None,
-                 hyperparam_dict_agn: dict = None,
-                 hyperparam_dict_alt: dict = None,
-                 skymap_cl: float = 1,
-                 n_posterior_samples: int = 1000,
-                 cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)):
+    def __init__(
+                self,
+                n_events: int,
+                f_agn: float,
+                catalog: MockCatalog,
+                use_skymaps: bool,
+                model_dict: dict = None,
+                hyperparam_dict_agn: dict = None,
+                hyperparam_dict_alt: dict = None,
+                skymap_cl: float = 1.,
+                n_posterior_samples: int = 1000,
+                cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+            ):
         
         """
-        model_dict: dict            Contains all population prior models as strings in the format {`agn`: [`agn_model1`, ..., `agn_modelN`], `alt`: [...]},
-        catalog: MockCatalog        If you don't want skymaps, give an empty catalog (use n_agn = 0). If you want skymaps while f_agn = 0,
-                                    still provide an AGN catalog with at least 1 AGN and the desired gw_box_radius!
-        """
-        
-        super().__init__(n_events,
-                         f_agn,
-                         catalog,
-                         skymap_cl,
-                         n_posterior_samples,
-                         cosmology)  # Inherit all properties and methods from MockSkymap
+        If you don't want skymaps, call MockEvent.without_skymaps()
+        If you want skymaps while f_agn = 0, call MockEvent.with_skymaps_without_agn()
+        In both these cases: provide zmax: the maximum redshift to generate GWs from
 
-        if len(self.properties) != 0:
-            print(f'Confirm: {len(self.properties)} Skymaps have been generated.')
-            self.skymaps_flag = True
+
+
+        model_dict: dict            Contains all population prior models as strings in the format {`agn`: [`agn_model1`, ..., `agn_modelN`], `alt`: [...]},
+        catalog: MockCatalog        
+        """
+        
+        # Inherit all properties and methods from MockSkymap
+        super().__init__(
+                        n_events,
+                        f_agn,
+                        catalog,
+                        skymap_cl,
+                        n_posterior_samples,
+                        cosmology
+                    )
+        
+
+        self.skymaps_flag = use_skymaps
+        self.properties = pd.DataFrame()
+        self.posteriors = None  # Call get_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.properties
+
+        if self.skymaps_flag:
+            self.make_skymaps()  # Adds true values to self.properties
+            print(f'\nConfirm: {len(self.properties)} Skymaps have been generated.')
         else:
-            print('Confirm: No skymaps have been generated.')
-            self.skymaps_flag = False
+            print('\nNot generating skymaps.')
 
         self.model_dict = model_dict
         self.hyperparam_dict_agn = hyperparam_dict_agn
@@ -56,7 +71,73 @@ class MockEvent(MockSkymap):
             self.agn_models, self.alt_models = None, None
 
         if self.model_dict is not None:
-            self.inject_events()  # Adds true values to self.properties. Call get_posteriors() to measure the injected events.
+            self.inject_events()  # Adds true values to self.properties
+
+    
+    @classmethod
+    def without_skymaps(
+                    cls,
+                    n_events: int,
+                    f_agn: float,
+                    zmax: float,
+                    model_dict: dict,
+                    hyperparam_dict_agn: dict,
+                    hyperparam_dict_alt: dict,
+                    n_posterior_samples: int = 1000,
+                    cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+                ):
+        
+        ''' Make MockEvent instances with this method if you do not want any skymaps. '''
+
+        # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary since the measurement error depends on this
+        Catalog = MockCatalog(n_agn=0, max_redshift=zmax, gw_box_radius=zmax)
+
+        obj = cls(
+                n_events=n_events,
+                f_agn=f_agn,
+                catalog=Catalog,
+                use_skymaps=False,
+                model_dict=model_dict,
+                hyperparam_dict_agn=hyperparam_dict_agn,
+                hyperparam_dict_alt=hyperparam_dict_alt,
+                skymap_cl=1.,
+                n_posterior_samples=n_posterior_samples,
+                cosmology=cosmology
+            )
+        return obj
+    
+
+    @classmethod
+    def with_skymaps_without_agn(
+                                cls,
+                                n_events: int,
+                                zmax: float,
+                                skymap_cl: float,
+                                model_dict: dict = None,
+                                hyperparam_dict_agn: dict = None,
+                                hyperparam_dict_alt: dict = None,
+                                n_posterior_samples: int = 1000,
+                                cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+                            ):
+        
+        ''' Let's you generate f_agn = 0 dataset without specifying an AGN catalog in the case you still want to use skymaps. '''
+        
+        # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary since the measurement error depends on this
+        Catalog = MockCatalog(n_agn=0, max_redshift=zmax, gw_box_radius=zmax)
+
+        obj = cls(
+                n_events=n_events,
+                f_agn=0.,
+                catalog=Catalog,
+                use_skymaps=True,
+                model_dict=model_dict,
+                hyperparam_dict_agn=hyperparam_dict_agn,
+                hyperparam_dict_alt=hyperparam_dict_alt,
+                skymap_cl=skymap_cl,
+                n_posterior_samples=n_posterior_samples,
+                cosmology=cosmology
+            )
+        return obj
 
 
     @staticmethod
@@ -161,9 +242,11 @@ class MockEvent(MockSkymap):
         ''' Measures quantities from true values. True values stay the same for subsequent calls. '''
 
         if self.skymaps_flag:
+            print('\nGenerating sky localization...')
             self.get_skymap_posteriors()
 
         if self.model_dict is not None:
+            print('\nGenerating intrinsic parameter posteriors...')
             self._measure_events()
 
         return self.posteriors
@@ -176,15 +259,19 @@ if __name__ == '__main__':
     N_TOT = 1
     GRID_SIZE = 40  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 30  # Radius of the GW box in redshift
-    
-    Catalog = MockCatalog(n_agn=N_TOT,
-                            max_redshift=GRID_SIZE,
-                            gw_box_radius=GW_BOX_SIZE,
-                            completeness=1)
+    N_EVENTS = 10000
+    F_AGN = 0.5
+    CL = 0.999
 
-    n_events = 10000
-    f_agn = 0.5
-    cl = 0.999
+    ##### FAGN = 0 EVENTS WITH SKYMAPS #####
+    # events = MockEvent.with_skymaps_without_agn(n_events=N_EVENTS,
+    #                                             zmax=GW_BOX_SIZE,
+    #                                             skymap_cl=CL)
+    
+    # events.get_posteriors()
+    # print(events.posteriors)
+
+    ########################################  
 
     # The model dictionary should contain choices of implemented models. These models have parameters for which we pass another dictionary
     # TODO: think about what happens when we want to do the chi_eff vs q correlation here (mass ratios are used in the mass models already)
@@ -204,22 +291,41 @@ if __name__ == '__main__':
             hyperparam_dict_agn = json.load(file)
         with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/mockgw/hyperparam_alt.json", "r") as file:
             hyperparam_dict_alt = json.load(file)
+
+
+    ##### EVENTS WITH EMPTY CATALOG #####
+    # events = MockEvent.without_skymaps(n_events=N_EVENTS,
+    #                                    f_agn=F_AGN,
+    #                                    zmax=GW_BOX_SIZE,
+    #                                    model_dict=model_dict,
+    #                                    hyperparam_dict_agn=hyperparam_dict_agn,
+    #                                    hyperparam_dict_alt=hyperparam_dict_alt,
+    #                                    )
+    # events.get_posteriors()
+    # print(events.posteriors)
+    #####################################
     
+
+    Catalog = MockCatalog(n_agn=N_TOT,
+                            max_redshift=GRID_SIZE,
+                            gw_box_radius=GW_BOX_SIZE,
+                            completeness=1)
+
     # GWEvents = MockEvent(
-    #                     n_events=n_events,
-    #                     f_agn=f_agn,
+    #                     n_events=N_EVENTS,
+    #                     f_agn=F_AGN,
     #                     catalog=Catalog, 
-    #                     skymap_cl=cl
+    #                     skymap_cl=CL
     #                 )
 
     GWEvents = MockEvent(
                         model_dict=model_dict,
-                        n_events=n_events,
-                        f_agn=f_agn,
+                        n_events=N_EVENTS,
+                        f_agn=F_AGN,
                         hyperparam_dict_agn=hyperparam_dict_agn,
                         hyperparam_dict_alt=hyperparam_dict_alt,
                         catalog=Catalog, 
-                        skymap_cl=cl
+                        skymap_cl=CL
                     )
 
     GWEvents.get_posteriors()
@@ -237,8 +343,6 @@ if __name__ == '__main__':
     plt.hist(alt_mass2, density=True, bins=30, histtype='step', color='coral', linewidth=3, label='ALT m2')
     plt.legend()
     plt.show()
-
-
     
 
 #%%
