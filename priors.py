@@ -18,7 +18,7 @@ class PrimaryPrior(object):
     """
 
     def __init__(self):
-        self.param_label = ['mass_1']  # Used by MockEvent class
+        self.param_label = ['mass_1_source']  # Used by MockEvent class
 
     def update_parameters(self, param_dict):
         """
@@ -66,11 +66,9 @@ class PrimaryPrior(object):
         ----------
         ms1: np.array(matrix)
             mass one in solar masses
-        ms2: dict
-            mass two in solar masses
         """
 
-        to_ret = self.mdis['mass_1'].prob(ms1)
+        to_ret = self.mdis['mass_1_source'].prob(ms1)
         return to_ret
     
     def log_joint_prob(self, ms1):
@@ -92,8 +90,8 @@ class PrimaryPrior(object):
         """
 
         vals_m1 = np.random.rand(Nsample)
-        m1_trials = np.logspace(np.log10(self.mdis['mass_1'].minimum), np.log10(self.mdis['mass_1'].maximum), 10000)
-        cdf_m1_trials = self.mdis['mass_1'].cdf(m1_trials)
+        m1_trials = np.logspace(np.log10(self.mdis['mass_1_source'].minimum), np.log10(self.mdis['mass_1_source'].maximum), 10000)
+        cdf_m1_trials = self.mdis['mass_1_source'].cdf(m1_trials)
         m1_trials = np.log10(m1_trials)
 
         # At very high or very low values of x, the CDF evaluates to 0 or 1 for all x. We only want a 0 or 1 once.
@@ -117,7 +115,7 @@ class PrimaryMass_gaussian(PrimaryPrior):
         # self.mmax = self.mmaxbh #Maximum value of m1, used in injections.Injections.update_VT (m_prior.mmax)
         # self.mmin = self.mminbh #Minimum value of m2, used in self.joint_prob and in injections.Injections.update_VT (m_prior.mmin) 
 
-        self.mdis={'mass_1':_cmp.Truncated_Gaussian_math(mu=self.mu_g, sigma=self.sigma_g, min_g=self.mminbh, max_g=self.mu_g + 5 * self.sigma_g)}  # TODO: implement smoothing?
+        self.mdis={'mass_1_source':_cmp.Truncated_Gaussian_math(mu=self.mu_g, sigma=self.sigma_g, min_g=self.mminbh, max_g=self.mu_g + 5 * self.sigma_g)}  # TODO: implement smoothing?
 
 
 
@@ -128,7 +126,7 @@ class m_priors(object):
     """
 
     def __init__(self):
-        self.param_label = ['mass_1', 'mass_2']  # Used by MockEvent class
+        self.param_label = ['mass_1_source', 'mass_2_source']  # Used by MockEvent class
 
     def update_parameters(self, param_dict):
         """
@@ -182,7 +180,7 @@ class m_priors(object):
             mass two in solar masses
         """
 
-        to_ret = self.mdis['mass_1'].prob(ms1) * self.mdis['mass_2'].conditioned_prob(ms2, self.mmin * np.ones_like(ms1), np.minimum(ms1, self.mmax2))
+        to_ret = self.mdis['mass_1_source'].prob(ms1) * self.mdis['mass_2_source'].conditioned_prob(ms2, self.mmin * np.ones_like(ms1), np.minimum(ms1, self.mmax2))
         return to_ret
     
     def log_joint_prob(self, ms1, ms2):
@@ -206,11 +204,11 @@ class m_priors(object):
         vals_m1 = np.random.rand(Nsample)
         vals_m2 = np.random.rand(Nsample)
 
-        m1_trials = np.logspace(np.log10(self.mdis['mass_1'].minimum), np.log10(self.mdis['mass_1'].maximum), 10000)
-        m2_trials = np.logspace(np.log10(self.mdis['mass_2'].minimum), np.log10(self.mdis['mass_2'].maximum), 10000)
+        m1_trials = np.logspace(np.log10(self.mdis['mass_1_source'].minimum), np.log10(self.mdis['mass_1_source'].maximum), 10000)
+        m2_trials = np.logspace(np.log10(self.mdis['mass_2_source'].minimum), np.log10(self.mdis['mass_2_source'].maximum), 10000)
 
-        cdf_m1_trials = self.mdis['mass_1'].cdf(m1_trials)
-        cdf_m2_trials = self.mdis['mass_2'].cdf(m2_trials)
+        cdf_m1_trials = self.mdis['mass_1_source'].cdf(m1_trials)
+        cdf_m2_trials = self.mdis['mass_2_source'].cdf(m2_trials)
 
         m1_trials = np.log10(m1_trials)
         m2_trials = np.log10(m2_trials)
@@ -223,7 +221,7 @@ class m_priors(object):
         interpo_icdf_m2 = interp1d(cdf_m2_trials[indxm2], m2_trials[indxm2], bounds_error=False, fill_value=(m2_trials[0], m2_trials[-1]))
 
         mass_1_samples = 10**interpo_icdf_m1(vals_m1)
-        mass_2_samples = 10**interpo_icdf_m2(vals_m2 * self.mdis['mass_2'].cdf(mass_1_samples))
+        mass_2_samples = 10**interpo_icdf_m2(vals_m2 * self.mdis['mass_2_source'].cdf(mass_1_samples))
 
         return mass_1_samples, mass_2_samples
     
@@ -267,8 +265,8 @@ class BBH_powerlaw(m_priors):
         self.mmin = self.mminbh #Minimum value of m2, used in self.joint_prob and in injections.Injections.update_VT (m_prior.mmin) 
         self.mmax2 = self.mmaxbh #Maximum value of m2, used in self.joint_prob
 
-        self.mdis={'mass_1':_cmp.PowerLaw_math(alpha=-self.alpha, min_pl=self.mminbh, max_pl=self.mmaxbh),
-                     'mass_2':_cmp.PowerLaw_math(alpha=self.beta, min_pl=self.mminbh, max_pl=self.mmaxbh)}
+        self.mdis={'mass_1_source':_cmp.PowerLaw_math(alpha=-self.alpha, min_pl=self.mminbh, max_pl=self.mmaxbh),
+                     'mass_2_source':_cmp.PowerLaw_math(alpha=self.beta, min_pl=self.mminbh, max_pl=self.mmaxbh)}
 
 
 class BBH_powerlaw_gaussian(m_priors):
@@ -302,7 +300,7 @@ class BBH_powerlaw_gaussian(m_priors):
     def update_mass_priors(self):
         ''' 
         This method creates a dictionary of mass distributions objects.         
-        It sets the maximum value of the primary mass distribution mmax to self.mdis['mass_1'].maximum, 
+        It sets the maximum value of the primary mass distribution mmax to self.mdis['mass_1_source'].maximum, 
         the minimum value of the secondary mass distribution mmin to mminbh, 
         and the maximum value of the secondary mass distribution mmax2 to mmaxbh.
         It's called by update_paratemters everytime the mass priors parameters are changed.
@@ -316,14 +314,14 @@ class BBH_powerlaw_gaussian(m_priors):
         # The max of the secondary mass is adapted to the primary mass maximum which is desided by the Gaussian and PL
         self.m2pr = _cmp.PowerLaw_math(alpha=self.beta, min_pl=self.mminbh, max_pl=np.max([self.mu_g + 5 * self.sigma_g, self.mmaxbh]))
 
-        self.mdis={'mass_1': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m),
-                      'mass_2':_cmp.SmoothedProb(origin_prob=self.m2pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}
+        self.mdis={'mass_1_source': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m),
+                      'mass_2_source':_cmp.SmoothedProb(origin_prob=self.m2pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}
        
         # TO DO Add a check on the mu_g - 5 sigma of the gaussian to not overlap with mmin, print a warning
         #if (mu_g - 5*sigma_g)<=mmin:
         #print('Warning, your mean (minuse 5 sigma) of the gaussian component is too close to the minimum mass')
 
-        self.mmax = self.mdis['mass_1'].maximum 
+        self.mmax = self.mdis['mass_1_source'].maximum 
         self.mmin = self.mminbh  
         self.mmax2 = self.mmaxbh
 
@@ -373,5 +371,5 @@ class BBH_broken_powerlaw(m_priors):
         self.m1pr = _cmp.BrokenPowerLaw_math(alpha_1=-self.alpha_1, alpha_2=-self.alpha_2, min_pl=self.mminbh, max_pl=self.mmaxbh, b=self.b)
         self.m2pr = _cmp.PowerLaw_math(alpha=self.beta, min_pl=self.mminbh, max_pl=self.mmaxbh)
 
-        self.mdis={'mass_1': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m),
-                      'mass_2':_cmp.SmoothedProb(origin_prob=self.m2pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}
+        self.mdis={'mass_1_source': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m),
+                      'mass_2_source':_cmp.SmoothedProb(origin_prob=self.m2pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}

@@ -23,9 +23,9 @@ class MockSkymap():
     ):
 
         """
-        Building skymap dataframe. Not meant to be called directly. Only access through MockEvent.
+        Building skymap dataframe. Instances of MockSkymap could be buggy, this is not rigorously tested. Preferably access through MockEvent.
         
-        TODO: documentation
+        TODO: documentation and better method names with _ in front and stuff
         """
 
         assert isinstance(catalog, MockCatalog), 'Provided catalog is not MockCatalog instance.'
@@ -37,7 +37,7 @@ class MockSkymap():
         self.skymap_cl = skymap_cl
         self.n_posterior_samples = n_posterior_samples
         self.cosmo = cosmology
-        
+
         self.MockCatalog = catalog  # Used to access completeness in likelihood, inheritance is not necessary
         cat = catalog.complete_catalog
         self.catalog = cat.loc[cat['in_gw_box'] == True]  # From which to generate AGN GWs
@@ -91,7 +91,7 @@ class MockSkymap():
 
 
     def sample_sigmas(self, mean=50, std=100):
-        # TODO: Make a better distribution
+        # TODO: Make a better distribution (even though this CDF works pretty well)
         return np.abs( np.random.normal(loc=mean, scale=std, size=self.n_events) )
     
 
@@ -133,9 +133,13 @@ class MockSkymap():
 
     def make_skymaps(self):
         self.make_true_skymap_locations()
-        sigmas = self.sample_sigmas()  # Independent of host
-        self.properties['sigma'] = sigmas
-        self.properties['loc_vol'], self.properties['loc_rad'] = self.cl_volume_from_sigma(sigmas)
+        sigmas = self.sample_sigmas()  # Sampling is independent of host, but we pair small uncertainties with nearby AGN below
+        
+        # Assign smallest localization volume to closest event
+        sigmas = np.sort(sigmas)
+        sorted_redshift_indices = np.argsort(np.argsort(self.properties['redshift']))
+        self.properties['sigma'] = sigmas[sorted_redshift_indices]        
+        self.properties['loc_vol'], self.properties['loc_rad'] = self.cl_volume_from_sigma(self.properties['sigma'])
     
 
     def get_skymap_posteriors(self):
@@ -157,7 +161,7 @@ if __name__ == '__main__':
 
     make_nice_plots()
 
-    N_TOT = 10000
+    N_TOT = 1000
     GRID_SIZE = 10  # Radius of the whole grid in redshift
     GW_BOX_SIZE = 2  # Radius of the GW box in redshift
     
@@ -166,7 +170,7 @@ if __name__ == '__main__':
                             gw_box_radius=GW_BOX_SIZE,
                             completeness=1)
 
-    n_events = 3
+    n_events = 5
     f_agn = 0.5
     skymap_cl = 0.999
     SkyMaps = MockSkymap(n_events=n_events,

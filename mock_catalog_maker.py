@@ -30,6 +30,7 @@ class MockCatalog():
 
         TODO: finish documentation here
         TODO: add functionality to make healpix map from catalog
+        TODO: improve method naming with _ in front and stuff
         """
         
         self.max_redshift = max_redshift

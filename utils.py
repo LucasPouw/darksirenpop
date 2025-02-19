@@ -4,6 +4,7 @@ import numpy as np
 from astropy.cosmology.core import CosmologyError
 import sys
 
+
 def make_nice_plots():
     # We define some properties for the figures
     import matplotlib as mpl
