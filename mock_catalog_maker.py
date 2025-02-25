@@ -84,6 +84,9 @@ class MockCatalog():
     
 
     def measure_redshift(self):
+
+        ''' Measures redshift from true value. TODO: CANNOT measure from true value in real situation. How much does that matter? '''
+
         # redshift_meas = np.random.normal(loc=self.complete_catalog['redshift'], scale=self.complete_catalog['redshift_error'])
         z_low, z_high = 0, self.max_redshift
         a, b = (z_low - self.complete_catalog['redshift']) * self.complete_catalog['redshift_error']**(-1), (z_high - self.complete_catalog['redshift']) * self.complete_catalog['redshift_error']**(-1)
@@ -99,6 +102,8 @@ class MockCatalog():
         self.complete_catalog['x_meas'] = x_meas
         self.complete_catalog['y_meas'] = y_meas
         self.complete_catalog['z_meas'] = z_meas
+
+        self.incomplete_catalog = self.complete_catalog.loc[self.complete_catalog['detected'] == True]  # Update the incomplete catalog
         
     
     def distribute_agn_shells(self):
