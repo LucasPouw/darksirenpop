@@ -1,6 +1,6 @@
 {
     "mminbh": {
-        "value": 6.0, 
+        "value": 5, 
         "description" : "Minimum mass for BH mass distributions (solar masses).",
         "prior" : "Uniform",
         "label" : "$M_{minBH}$"
@@ -18,13 +18,13 @@
         "label" : "$\\alpha$"
     },
     "mu_g": {
-        "value": 8.0,
+        "value": 10,
         "description" : "Mean of the gaussian peak of the primary powerlaw-gaussian BH mass distribution.",
         "prior" : "Uniform",
         "label" : "$\\mu_g$"
     },
     "sigma_g": {
-        "value" : 1.0, 
+        "value" : 3.0, 
         "description" : "Width of the gaussian component of the primary powerlaw-gaussian BH mass distribution (solar masses).",
         "prior" : "Uniform",
         "label" : "$\\sigma_g$"
