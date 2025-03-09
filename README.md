@@ -1,3 +1,3 @@
-# mockgw
-This is mostly just `gwcosmo` stripped for parts. I added functionality for
-mock GW data generation and analysis for distinguishing two populations
+# darksirenpop
+This is mostly just `gwcosmo` stripped for parts and applied to distinguishing two populations using more GW event parameters than just position and mass. 
+I also added functionality for mock GW data generation.
