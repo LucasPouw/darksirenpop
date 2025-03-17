@@ -4,7 +4,7 @@ import pandas as pd
 from astropy.cosmology import FlatLambdaCDM
 import sys, os
 import astropy.units as u
-from mockgw.utils import uniform_shell_sampler, fast_z_at_value, make_nice_plots
+from darksirenpop.utils import uniform_shell_sampler, fast_z_at_value, make_nice_plots
 from scipy.stats import truncnorm
 import h5py
 import healpy as hp

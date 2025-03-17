@@ -8,7 +8,7 @@ https://git.ligo.org/lscsoft/gwcosmo/-/blob/master/gwcosmo/prior/LOS_redshift_pr
 import numpy as np
 from scipy.stats import truncnorm
 from scipy.interpolate import interp1d
-from mockgw.utils import ra_dec_from_ipix, ipix_from_ra_dec
+from darksirenpop.utils import ra_dec_from_ipix, ipix_from_ra_dec
 import healpy as hp
 from pixelated_catalog import GalaxyCatalog
 

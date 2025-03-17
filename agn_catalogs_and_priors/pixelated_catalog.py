@@ -12,7 +12,7 @@ import pickle
 import array
 import numpy as np
 import h5py
-from mockgw.utils import ipix_from_ra_dec, get_cachedir
+from darksirenpop.utils import ipix_from_ra_dec, get_cachedir
 # istarmap.py for Python 3.8+
 import multiprocessing.pool as mpp
 from multiprocessing import Pool

@@ -17,7 +17,7 @@ import threading
 import sys, os
 import logging
 from pixelated_catalog import load_catalog_from_path
-from mockgw.arguments import create_parser
+from darksirenpop.arguments import create_parser
 from tqdm import tqdm
 
 handler_out = logging.StreamHandler(stream=sys.stdout)
