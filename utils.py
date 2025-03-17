@@ -1,23 +1,22 @@
 from astropy.cosmology import z_at_value
 import matplotlib.pyplot as plt
 import numpy as np
-from astropy.cosmology.core import CosmologyError
-import sys
+import matplotlib as mpl
+import healpy as hp
+import os
 
 
 def make_nice_plots():
-    # We define some properties for the figures
-    import matplotlib as mpl
     SMALL_SIZE = 10 * 2 
     MEDIUM_SIZE = 12 * 2
     BIGGER_SIZE = 14 * 2
 
     plt.rc('text', usetex=True)
-    plt.rc('axes', titlesize=SMALL_SIZE)                     # fontsize of the axes title\n",
-    plt.rc('axes', labelsize=MEDIUM_SIZE)                    # fontsize of the x and y labels\n",
-    plt.rc('xtick', labelsize=SMALL_SIZE, direction='out')   # fontsize of the tick labels\n",
-    plt.rc('ytick', labelsize=SMALL_SIZE, direction='out')   # fontsize of the tick labels\n",
-    plt.rc('legend', fontsize=SMALL_SIZE)                    # legend fontsize\n",
+    plt.rc('axes', titlesize=SMALL_SIZE)
+    plt.rc('axes', labelsize=MEDIUM_SIZE)
+    plt.rc('xtick', labelsize=SMALL_SIZE, direction='out')
+    plt.rc('ytick', labelsize=SMALL_SIZE, direction='out')
+    plt.rc('legend', fontsize=SMALL_SIZE)
     mpl.rcParams['axes.titlesize'] = BIGGER_SIZE
     mpl.rcParams['ytick.direction'] = 'in'
     mpl.rcParams['xtick.direction'] = 'in'
@@ -42,10 +41,15 @@ def make_nice_plots():
     mpl.rcParams['ytick.minor.width'] = 1
 
 
+def sample_spherical_angles(n_samps=1):
+    theta = np.arccos(np.random.uniform(size=n_samps, low=-1, high=1))  # Cosine is uniformly distributed between -1 and 1 -> cos between 0 and pi
+    phi = 2 * np.pi * np.random.uniform(size=n_samps)  # Draws phi from 0 to 2pi
+    return theta, phi
+
+
 def uniform_shell_sampler(rmin, rmax, n_samps):
-    theta = np.arccos(np.random.uniform(size=n_samps, low=-1, high=1))  # cosine is uniformly distributed between -1 and 1
-    phi = 2 * np.pi * np.random.uniform(size=n_samps) - np.pi  # Draws phi from -np.pi to np.pi
     r = ( np.random.uniform(size=n_samps, low=rmin**3, high=rmax**3) )**(1/3)
+    theta, phi = sample_spherical_angles(n_samps)
     return r, theta, phi
 
 
@@ -60,14 +64,12 @@ def cartesian2spherical(x, y, z):
     r = np.sqrt(x**2 + y**2 + z**2)
     theta = np.arccos(np.clip(z / r, -1, 1))  # From 0 to pi
     phi = np.arctan2(y, x)  # From -pi to pi
+    phi = np.where(phi >= 0, phi, phi + 2*np.pi)  # From 0 to 2pi
     return r, theta, phi
 
 
 def fast_z_at_value(function, values, num=10000):
-    try:
-        zmin = z_at_value(function, values.min())
-    except CosmologyError:
-        sys.exit(values.min(), 'THIS DISTANCE GAVE AN ERROR, FIX THAT')
+    zmin = z_at_value(function, values.min())
     zmax = z_at_value(function, values.max())
     zgrid = np.geomspace(zmin, zmax, num)
     valgrid = function(zgrid)
@@ -79,6 +81,28 @@ def check_equal(a, b):
     if len(a) != len(b):
         return False
     return sorted(a) == sorted(b)
+
+
+def ra_dec_from_ipix(nside, ipix, nest=False):
+    """RA and dec from HEALPix index"""
+    (theta, phi) = hp.pix2ang(nside, ipix, nest=nest)
+    return (phi, np.pi/2.-theta)
+
+
+def ipix_from_ra_dec(nside, ra, dec, nest=False):
+    """HEALPix index from RA and dec"""
+    (theta, phi) = (np.pi/2.-dec, ra)
+    return hp.ang2pix(nside, theta, phi, nest=nest)
+
+
+def get_cachedir(cachedir=None):
+    if cachedir is None:
+        if 'MOCKGW_CACHE' in os.environ.keys():
+            cachedir = os.environ['MOCKGW_CACHE']
+        else:
+            cachedir = os.path.join(os.environ['HOME'], '.cache/mockgw')
+    os.makedirs(cachedir, exist_ok=True)
+    return cachedir
 
 
 if __name__ == '__main__':

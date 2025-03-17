@@ -1,7 +1,6 @@
 output
 __pycache__
 
-test.ipynb
-test.py
+test*
 pagn.npy
 palt.npy

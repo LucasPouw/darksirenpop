@@ -12,13 +12,14 @@ import pickle
 import array
 import numpy as np
 import h5py
-from utils import ipix_from_ra_dec, get_cachedir
+from mockgw.utils import ipix_from_ra_dec, get_cachedir
 # istarmap.py for Python 3.8+
 import multiprocessing.pool as mpp
 from multiprocessing import Pool
 from collections import defaultdict
 
 DEG2RAD = np.pi/180.0
+
 
 def get_catalogfile(filename):
     if 'AGN_CATALOG_PATH' in os.environ.keys():
@@ -29,6 +30,7 @@ def get_catalogfile(filename):
         return file
     else:
         raise FileNotFoundError(f"Unable to locate {filename}. Make sure your $AGN_CATALOG_PATH is set")
+
 
 def istarmap(self, func, iterable, chunksize=1):
     """starmap-version of imap
@@ -155,6 +157,7 @@ class GalaxyCatalog:
         for f in glob.glob(cachedir+'/'+self.name+'_*'):
             try:
                 if os.path.getmtime(f) < mtime:
+                    print('Clearing cache...')
                     os.remove(f)
             except FileNotFoundError:
                 # Here in case a parallel job has removed the file
@@ -164,6 +167,10 @@ class GalaxyCatalog:
     def select_pixel(self, nside, pixel_index, nested=True):
         """
         Keep only galaxies in the desired healpix pixel indices
+
+        Note from Lucas:
+        Calling pixelate() on the fly breaks the multithreading. 
+        Workaround: Try to make sure the correct pixel index file has been put in cache before threading -> see compute_zprior.py
         """
         # Try to load an index file, and create one if not
         if not self.read_pixel_index_cache(nside):
@@ -176,7 +183,6 @@ class GalaxyCatalog:
                 self.pixmap[nside] = pixelate(self, nside, nested=nested)
 
         pixmap = self.pixmap[nside]
-
         idx = pixmap[pixel_index]
         new = GalaxyCatalog(data = self.data[idx], name = self.name+f'_nside{nside}_pixel{pixel_index}')
         return new
@@ -196,6 +202,7 @@ class GalaxyCatalog:
 def newarr():
     return array.array('Q')
 
+
 def pixelate(cat, nside, allowed_pixels=None, nested=True):
     Nprocs = 2 # higher values use more RAM and disk bandwidth.
 
@@ -210,8 +217,8 @@ def pixelate(cat, nside, allowed_pixels=None, nested=True):
                           chunksize=1000000
                          ):
                 pixlists[pixidx].append(galidx)
-    for k,v in pixlists.items():
-        pixlists[k]=np.sort(v)
+    for k, v in pixlists.items():
+        pixlists[k] = np.sort(v)
     return pixlists
 
 
@@ -260,5 +267,5 @@ class OldStyleQuaia(OldStyleCatalog):
         super().__init__(catalog_file = catalog_file, name = 'Quaia')
 
 class OldStyleMock(OldStyleCatalog):
-    def __init__(self, catalog_file = 'mock.hdf5'):
-        super().__init__(catalog_file = catalog_file, name = 'Mock')
+    def __init__(self, catalog_file):
+        super().__init__(catalog_file, name = 'Mock')

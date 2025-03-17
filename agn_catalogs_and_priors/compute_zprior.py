@@ -14,10 +14,11 @@ import h5py
 from LOS_zprior import LineOfSightRedshiftPrior
 import multiprocessing as mp
 import threading
-import sys
+import sys, os
 import logging
 from pixelated_catalog import load_catalog_from_path
-from arguments import create_parser
+from mockgw.arguments import create_parser
+from tqdm import tqdm
 
 handler_out = logging.StreamHandler(stream=sys.stdout)
 handler_err = logging.StreamHandler(stream=sys.stderr)
@@ -100,8 +101,6 @@ def main():
     opts = parser.parse_args()
     logger.info(opts)
 
-    ### ERRORS IF NSIDE > COURSE_NSIDE FROM PRECOMPUTED MAP ### TODO
-
     zmax = float(opts.zmax)
     nside = int(opts.nside)
     zarray = np.linspace(0, zmax, 1000)  # TODO: make this not hard-coded
@@ -125,6 +124,8 @@ def main():
 
     # catalog = load_catalog_from_opts(opts)
     catalog = load_catalog_from_path(name=opts.catalog_name, catalog_path=opts.catalog_path)
+    catalog.clean_cache(mtime=np.inf)  # Clean cache
+    catalog.select_pixel(nside=nside, pixel_index=0)  # Put correct indexing file in cache, otherwise multiprocessing breaks and I'm not going to fix that -Lucas
     
     # # Try to use all sky map if it exists
     # norm_map_path = f"{maps_path}/norm_map_{opts.catalog}_nside{coarse_nside}_pixel_indexNone_zmax{str(zmax).replace('.', ',')}.fits"
@@ -137,8 +138,9 @@ def main():
     galaxy_norm = opts.maps_path
     logger.info(f"norm map path: {galaxy_norm}")
 
+    ### ERRORS IF NSIDE < COURSE_NSIDE FROM PRECOMPUTED MAP ### TODO
     m = hp.read_map(galaxy_norm)
-    assert np.sqrt(len(m) / 12) > nside, "Coarse nside of norm map is larger than nside of high resolution map. This gives an error in multithreading, which I am not going to solve xoxo Lucas."
+    assert np.sqrt(len(m) / 12) <= nside, "Coarse nside of norm map is larger than nside of high resolution map."
 
     #############################################################
     ##################### MAIN FUNCTIONS ########################
@@ -155,7 +157,12 @@ def main():
     offset = opts.offset  # TODO: What is the offset for? -Lucas
     denom = 1.
 
-    f1 = h5py.File( f"{opts.catalog_name}_LOS_redshift_prior_nside_{nside}_pixel_index_{opts.pixel_index}.hdf5", "w" )
+    fname = f'/LOSzpriors/{opts.catalog_name}_LOS_redshift_prior_nside_{nside}_pixel_index_{opts.pixel_index}.hdf5'
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
+    output_path = os.path.join(script_dir, "../output")
+    output_path = os.path.abspath(output_path)  # Normalize path to resolve '..'
+
+    f1 = h5py.File(output_path + fname, "w" )
     f1.create_dataset("z_array", (len(zarray),), dtype='f', data=zarray)
 
     # Create queues for multiprocessing message passing
@@ -204,12 +211,13 @@ def main():
     npix_out = len([key for key in keys if key.isdigit()])
     if npix_out != npix:
         logger.warning(f"Number of pixels in output file is {npix_out} which doesn't correspond to expected {npix}")
-    
+
     arr_names = ["z_array"]
     if npix != 1:
         arr_names += ["combined_pixels"]
     arr_names += list(pixel_indices)
-    for name in arr_names:
+
+    for name in tqdm(arr_names):
         try:
             arr = np.array(list(f1[str(name)]))
             if np.isnan(arr).any():
@@ -219,6 +227,8 @@ def main():
         except Warning:
             logger.warning(f"Output file doesn't contain {name}")
     f1.close()
+    
+    print('Done')
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ https://git.ligo.org/lscsoft/gwcosmo/-/blob/master/gwcosmo/prior/LOS_redshift_pr
 import numpy as np
 from scipy.stats import truncnorm
 from scipy.interpolate import interp1d
-from utils import ra_dec_from_ipix, ipix_from_ra_dec
+from mockgw.utils import ra_dec_from_ipix, ipix_from_ra_dec
 import healpy as hp
 from pixelated_catalog import GalaxyCatalog
 
@@ -41,7 +41,7 @@ class LineOfSightRedshiftPrior:
                  galaxy_catalog:GalaxyCatalog,  # TODO: rework pixelated_catalog.py such that this is true. Only self.populate() (I think) needs to be redone, such that self.data works
                  nside:int,
                  galaxy_norm:str,
-                 z_array:np.ndarray=np.linspace(1e-2, 5, 500),  # TODO: Tailor better for Quaia and test - why return this if it is always the same?
+                 z_array:np.ndarray,  # TODO: Why return this if it is always the same?
                  zmax:float=10.,
                  min_gals_for_threshold:int=10):
         
@@ -59,10 +59,12 @@ class LineOfSightRedshiftPrior:
             self.galaxy_norm = 0
         else:
             self.galaxy_norm = low_res_galaxy_norm / (hp.nside2npix(self.nside) / hp.get_map_size(m))  # Adjust for different resolutions
-        logger.info(f"galaxy norm: {self.galaxy_norm}")
 
         self.zs = subcatalog['redshift'] 
         self.sigmazs = subcatalog['redshift_error']
+
+        ngals = len(self.zs)
+        logger.info(f"Found {ngals} in fine pixel. Coarse pixel had {low_res_galaxy_norm}. Galaxy norm: {self.galaxy_norm}")
 
     
     def create_redshift_prior(self):
