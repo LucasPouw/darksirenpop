@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 import custom_math_priors as _cmp
 
 
-class PrimaryPrior(object):
+class PrimaryPrior:
     """
     Parent class with common methods for managing the priors on the source frame primary mass.
     The prior is :math:`p(m_1)`
@@ -19,6 +19,7 @@ class PrimaryPrior(object):
 
     def __init__(self):
         self.param_label = ['mass_1_source']  # Used by MockEvent class
+
 
     def update_parameters(self, param_dict):
         """
@@ -118,8 +119,58 @@ class PrimaryMass_gaussian(PrimaryPrior):
         self.mdis={'mass_1_source':_cmp.Truncated_Gaussian_math(mu=self.mu_g, sigma=self.sigma_g, min_g=self.mminbh, max_g=self.mu_g + 5 * self.sigma_g)}  # TODO: implement smoothing?
 
 
+class PrimaryMass_powerlaw_gaussian(PrimaryPrior):
+    """
+    Child class for BBH power law gaussian distribution.
+    
+    Parameters
+    -------------
+    mminbh: Minimum mass of the PL component of the black hole mass distribution
+    mmaxbh: Maximum mass of the PL component of the black hole mass distribution
+    alpha: Spectral index for the PL of the primary mass distribution    
+    mu_g: Mean of the Gaussian component in the primary mass distribution
+    sigma_g: Width of the Gaussian component in the primary mass distribution
+    lambda_peak: Fraction of the model in the Gaussian component
+    delta_m: Range of mass tapering on the lower end of the mass distribution
 
-class m_priors(object):
+    The default values of the parameters are set to the corresponding values reported in section 4.2 (page 23) in 2111.03604
+
+    ************
+    NOTE: The spectral indices passed to PowerLawGaussian_math, and PowerLaw_math, are alpha=-self.alpha, and alpha=self.beta, according to eqs. A8,A11 in 2111.03604
+    *************   
+
+    The method m_priors.update_parameters is used in the constructor to initialize the objects.
+    """
+    def __init__(self, mminbh=4.98, mmaxbh=112.5, alpha=3.78, mu_g=32.27, sigma_g=3.88, lambda_peak=0.03, delta_m=4.8):
+        super().__init__()
+
+        self.update_parameters(param_dict={'alpha':alpha, 'mminbh':mminbh, 'mmaxbh':mmaxbh, 'mu_g':mu_g, 'sigma_g':sigma_g, 'lambda_peak':lambda_peak, 'delta_m':delta_m})
+
+    def update_mass_priors(self):
+        ''' 
+        This method creates a dictionary of mass distributions objects.         
+        It sets the maximum value of the primary mass distribution mmax to self.mdis['mass_1_source'].maximum, 
+        the minimum value of the secondary mass distribution mmin to mminbh, 
+        and the maximum value of the secondary mass distribution mmax2 to mmaxbh.
+        It's called by update_paratemters everytime the mass priors parameters are changed.
+        Every mass priors model has a different implementation because the distributions are different,
+        and mmax, mmin and mmax2 definitions depend on the mass prior model.          
+        '''
+                       
+        self.m1pr = _cmp.PowerLawGaussian_math(alpha=-self.alpha, min_pl=self.mminbh, max_pl=self.mmaxbh, lambda_g=self.lambda_peak,
+                                               mean_g=self.mu_g, sigma_g=self.sigma_g, min_g=self.mminbh, max_g=self.mu_g + 5 * self.sigma_g)
+
+        self.mdis={'mass_1_source': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}
+       
+        # TO DO Add a check on the mu_g - 5 sigma of the gaussian to not overlap with mmin, print a warning
+        #if (mu_g - 5*sigma_g)<=mmin:
+        #print('Warning, your mean (minuse 5 sigma) of the gaussian component is too close to the minimum mass')
+
+        # self.mmax = self.mdis['mass_1_source'].maximum 
+        # self.mmin = self.mminbh
+
+
+class BBHMasspriors:
     """
     Parent class with common methods for managing the priors on source frame masses.
     The prior is factorized as :math:`p(m_1,m_2) \\propto p(m_1)p(m_2|m_1)`
@@ -226,7 +277,7 @@ class m_priors(object):
         return mass_1_samples, mass_2_samples
     
 
-class BBH_powerlaw(m_priors):
+class BBH_powerlaw(BBHMasspriors):
     """
     Child class for BBH power law distribution.
     
@@ -269,7 +320,7 @@ class BBH_powerlaw(m_priors):
                      'mass_2_source':_cmp.PowerLaw_math(alpha=self.beta, min_pl=self.mminbh, max_pl=self.mmaxbh)}
 
 
-class BBH_powerlaw_gaussian(m_priors):
+class BBH_powerlaw_gaussian(BBHMasspriors):
     """
     Child class for BBH power law gaussian distribution.
     
@@ -326,7 +377,7 @@ class BBH_powerlaw_gaussian(m_priors):
         self.mmax2 = self.mmaxbh
 
 
-class BBH_broken_powerlaw(m_priors):
+class BBH_broken_powerlaw(BBHMasspriors):
     """
     Child class for BBH broken power law distribution.
 
