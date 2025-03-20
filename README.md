@@ -21,10 +21,16 @@ Run `mock_event_maker.py`. This will generate `.h5` files with two layers.
 The top layer is the group called `mock`, which is analogous to the approximant group in real GW data.
 This group contains the dataset `posterior_samples`, which is an `astopy.table.Table` object with columns such as `ra`, `dec` and `rlum`.
 
-### Calculating sky areas
-The confidence sky areas are needed. Currently, I only know how to do this by first calling
-`ligo-skymap-from-samples` and then `ligo-skymap-stats`. I made a wrapper for these functions called
-`make_skymaps.sh`.
+### Calculating skymaps
+The confidence sky areas are needed as well as the pixelated sky probabilities. This is easiest by making mock skymaps using
+`ligo-skymap-from-samples` from `ligo.skymap`. I made a wrapper for this function called `make_skymaps.sh`. This allows automatic generations
+of skymaps from all posterior sample files in a directory.
+
+Arguments:
+`--indir`
+`--outdir`
+`--jobs`
+`--skip`
 
 For example,
 
@@ -32,4 +38,4 @@ For example,
 
 With 1000 samples and 6 jobs, I get 5s/map.
 Doing 5000 samples and 6 jobs, 20-25 s/map.
-<!-- bash make_skymaps.sh --indir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_posterior_samples --outdir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_skymaps --jobs 6 -->
+<!-- bash make_skymaps.sh --indir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_posterior_samples --outdir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_skymaps --jobs 6 --skip 4700 -->

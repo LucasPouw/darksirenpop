@@ -4,12 +4,13 @@
 
 # Function to display the usage
 usage() {
-    echo "Usage: $0 --indir <input_directory> --outdir <output_directory> --jobs <num_jobs> [additional arguments for ligo-skymap-from-samples]"
+    echo "Usage: $0 --indir <input_directory> --outdir <output_directory> --jobs <num_jobs> --skip <skip_threshold> [additional arguments for ligo-skymap-from-samples]"
     exit 1
 }
 
 # Initialize variables
 JOBS=1  # Default number of jobs if not provided
+SKIP_THRESHOLD=0  # Default skip threshold if not provided
 EXTRA_ARGS=()  # To collect additional arguments
 
 # Parse command-line arguments
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --jobs)
             JOBS="$2"
+            shift 2
+            ;;
+        --skip)
+            SKIP_THRESHOLD="$2"
             shift 2
             ;;
         *)
@@ -63,9 +68,14 @@ counter=0
 
 # Loop through all .h5 files in the input directory
 for file in "$INDIR"/*.h5; do
+    if [ "$counter" -lt "$SKIP_THRESHOLD" ]; then
+        ((counter++))  # Increment counter inside the if block
+        continue
+    fi
+
     if [[ -f "$file" ]]; then
         # Generate the fits output name with an incrementing number
-        FITS_NAME="skymap_${counter}.fits"
+        FITS_NAME=$(printf "skymap_%05d.fits" "$counter")
 
         echo "Processing: $file"
         echo "Output: $OUTDIR/$FITS_NAME"
@@ -87,24 +97,26 @@ fi
 
 echo 'Done.'
 
-# Move to the output directory's parent
-cd "$OUTDIR"
-cd ..
+# Possible use of ligo-skymap-stats, but I don't think it's strictly necessary atm.
 
-# Create 'stats' directory if it does not exist
-if [[ ! -d "stats" ]]; then
-    echo "Output directory 'stats' does not exist. Creating it..."
-    mkdir -p "stats"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to create output directory 'stats'."
-        exit 1
-    fi
-fi
+# # Move to the output directory's parent
+# cd "$OUTDIR"
+# cd ..
 
-cd stats
+# # Create 'stats' directory if it does not exist
+# if [[ ! -d "stats" ]]; then
+#     echo "Output directory 'stats' does not exist. Creating it..."
+#     mkdir -p "stats"
+#     if [[ $? -ne 0 ]]; then
+#         echo "Error: Failed to create output directory 'stats'."
+#         exit 1
+#     fi
+# fi
 
-# Get the last part of the input directory name
-outfilename=$(basename "$INDIR")
+# cd stats
 
-# Run ligo-skymap-stats with --jobs
-ligo-skymap-stats "$OUTDIR"/*.fits --output "${outfilename}_stats.txt" --contour 68 90 99.9 --jobs "$JOBS"
+# # Get the last part of the input directory name
+# outfilename=$(basename "$INDIR")
+
+# # Run ligo-skymap-stats with --jobs
+# ligo-skymap-stats "$OUTDIR"/*.fits --output "${outfilename}_stats.txt" --contour 68 90 99.9 --jobs "$JOBS"
