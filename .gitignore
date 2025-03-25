@@ -5,3 +5,4 @@ test*
 pagn.npy
 palt.npy
 old*
+*.json

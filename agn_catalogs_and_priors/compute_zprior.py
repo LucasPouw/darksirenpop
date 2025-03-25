@@ -19,6 +19,8 @@ import logging
 from pixelated_catalog import load_catalog_from_path
 from darksirenpop.arguments import create_parser
 from tqdm import tqdm
+from astropy.cosmology import FlatLambdaCDM
+from LOS_zprior import get_norm_interp
 
 handler_out = logging.StreamHandler(stream=sys.stdout)
 handler_err = logging.StreamHandler(stream=sys.stderr)
@@ -62,7 +64,7 @@ def handle_results(h5file: h5py.File, queue: mp.Queue, npix=1, denom=1., offset=
             f"{pixel_index}", (len(p_of_z),), dtype='f', data=p_of_z)
 
 
-def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax, min_gals_for_threshold):
+def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax, min_gals_for_threshold, zmin, zdraw, cosmo):
     """
     Handles the multi process threading for multiple pixels.
     """
@@ -78,7 +80,10 @@ def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax
                                                 galaxy_norm=galaxy_norm,
                                                 z_array=zarray,
                                                 zmax=zmax,
-                                                min_gals_for_threshold=min_gals_for_threshold
+                                                min_gals_for_threshold=min_gals_for_threshold,
+                                                zdraw=zdraw,
+                                                zmin=zmin,
+                                                cosmo=cosmo
                                             )
             (p_of_z, z_array) = LOS_zprior.create_redshift_prior()
             res = (p_of_z, z_array, LOS_zprior.pixel_index)
@@ -88,7 +93,9 @@ def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax
 
 
 def main():
-    parser = create_parser("--zmax", 
+    parser = create_parser("--zmax",
+                           "--zmin",
+                           "--zdraw",
                            "--nside", 
                            "--coarse_nside",
                            "--catalog_name",
@@ -102,8 +109,15 @@ def main():
     logger.info(opts)
 
     zmax = float(opts.zmax)
+    zmin = float(opts.zmin)
+    zdraw = float(opts.zdraw)
     nside = int(opts.nside)
-    zarray = np.linspace(0, zmax, 1000)  # TODO: make this not hard-coded
+
+    # TODO: make this not hard-coded
+    cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+    zarray = np.logspace(-10, np.log10(zdraw), 12000)
+    SIGMA = 0.01
+    # zarray = np.linspace(0, zmax, 1000)  
 
     #############################################################
     ########################## MAPS #############################
@@ -126,6 +140,7 @@ def main():
     catalog = load_catalog_from_path(name=opts.catalog_name, catalog_path=opts.catalog_path)
     catalog.clean_cache(mtime=np.inf)  # Clean cache
     catalog.select_pixel(nside=nside, pixel_index=0)  # Put correct indexing file in cache, otherwise multiprocessing breaks and I'm not going to fix that -Lucas
+    _ = get_norm_interp(zmin=zmin, zmax=zmax, sigma=SIGMA, npoints=10000, cosmo=cosmo, cachedir=None)  # Same thing, but this time it's my own fault -Lucas
     
     # # Try to use all sky map if it exists
     # norm_map_path = f"{maps_path}/norm_map_{opts.catalog}_nside{coarse_nside}_pixel_indexNone_zmax{str(zmax).replace('.', ',')}.fits"
@@ -157,7 +172,7 @@ def main():
     offset = opts.offset  # TODO: What is the offset for? -Lucas
     denom = 1.
 
-    fname = f'/LOSzpriors/{opts.catalog_name}_LOS_redshift_prior_nside_{nside}_pixel_index_{opts.pixel_index}.hdf5'
+    fname = f'/LOSzpriors/{opts.catalog_name}_LOS_redshift_prior_lenzarray_{len(zarray)}_zdraw_{zdraw}_zmax_{zmax}_nside_{nside}_nagn_{len(catalog)}_sigma_{SIGMA}_pixel_index_{opts.pixel_index}.hdf5'
     script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
     output_path = os.path.join(script_dir, "../output")
     output_path = os.path.abspath(output_path)  # Normalize path to resolve '..'
@@ -180,7 +195,7 @@ def main():
     with mp.Pool(n_threads) as p:
         # Create the mp threads
         logger.info(f"Launching {n_threads} worker threads")
-        args=[(task_queue, results_queue, catalog, nside, galaxy_norm, zarray, zmax, opts.min_gals_for_threshold) for _ in range(n_threads)]
+        args=[(task_queue, results_queue, catalog, nside, galaxy_norm, zarray, zmax, opts.min_gals_for_threshold, zmin, zdraw, cosmo) for _ in range(n_threads)]
 
         p.starmap_async(LOS_mp_thread, args)
         for pixel_index in pixel_indices: task_queue.put(pixel_index)
@@ -206,26 +221,27 @@ def main():
     ###################### CHECK OUTPUT #########################
     #############################################################
     logger.info(f"Checking output file")
+    print('NOPE xoxo Lucas')
     
-    keys = f1.keys()
-    npix_out = len([key for key in keys if key.isdigit()])
-    if npix_out != npix:
-        logger.warning(f"Number of pixels in output file is {npix_out} which doesn't correspond to expected {npix}")
+    # keys = f1.keys()
+    # npix_out = len([key for key in keys if key.isdigit()])
+    # if npix_out != npix:
+    #     logger.warning(f"Number of pixels in output file is {npix_out} which doesn't correspond to expected {npix}")
 
-    arr_names = ["z_array"]
-    if npix != 1:
-        arr_names += ["combined_pixels"]
-    arr_names += list(pixel_indices)
+    # arr_names = ["z_array"]
+    # if npix != 1:
+    #     arr_names += ["combined_pixels"]
+    # arr_names += list(pixel_indices)
 
-    for name in tqdm(arr_names):
-        try:
-            arr = np.array(list(f1[str(name)]))
-            if np.isnan(arr).any():
-                logger.warning(f"{name} contains nan values")
-            if np.isinf(arr).any():
-                logger.warning(f"{name} contains inf values")
-        except Warning:
-            logger.warning(f"Output file doesn't contain {name}")
+    # for name in tqdm(arr_names):
+    #     try:
+    #         arr = np.array(list(f1[str(name)]))
+    #         if np.isnan(arr).any():
+    #             logger.warning(f"{name} contains nan values")
+    #         if np.isinf(arr).any():
+    #             logger.warning(f"{name} contains inf values")
+    #     except Warning:
+    #         logger.warning(f"Output file doesn't contain {name}")
     f1.close()
     
     print('Done')

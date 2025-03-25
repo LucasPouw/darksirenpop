@@ -18,13 +18,15 @@ class MockEvent(MockSkymap):
                 self,
                 n_events: int,
                 f_agn: float,
+                zdraw: float,
+                sky_area_low: float=100,
+                sky_area_high: float=10000,
                 catalog: MockCatalog = None,    # Either a MockCatalog object you just made
                 catalog_path: str = None,       # Or a pre-existing one that is stored in hdf5 format
                 use_skymaps: bool = True,
                 model_dict: dict = None,
                 hyperparam_dict_agn: dict = None,
                 hyperparam_dict_alt: dict = None,
-                skymap_cl: float = 1.,
                 n_posterior_samples: int = int(5e4),
                 cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065),
                 outdir: str=os.path.join(sys.path[0], "output/mock_gw_data"),
@@ -34,7 +36,7 @@ class MockEvent(MockSkymap):
         """
         If you don't want skymaps, call MockEvent.without_skymaps()
         If you want skymaps while f_agn = 0, call MockEvent.with_skymaps_without_agn()
-        In both these cases, provide zmax: the maximum redshift to generate GWs from
+        In both these cases, provide zdraw: the maximum redshift to generate GWs from
 
         model_dict: dict            Contains all population prior models as strings in the format {`agn`: [`agn_model1`, ..., `agn_modelN`], `alt`: [...]},
         catalog: MockCatalog        
@@ -46,7 +48,7 @@ class MockEvent(MockSkymap):
                         f_agn,
                         catalog,
                         catalog_path,
-                        skymap_cl,
+                        zdraw,
                         n_posterior_samples,
                         cosmology,
                         outdir,
@@ -68,6 +70,8 @@ class MockEvent(MockSkymap):
         self.outdir = outdir
 
         self.skymaps_flag = use_skymaps
+        self.sky_area_low = sky_area_low
+        self.sky_area_high = sky_area_high
         self.truths = pd.DataFrame()
 
         # TODO: don't use self.posteriors anymore. The make_posteriors() method should write directly to hdf5.
@@ -76,7 +80,7 @@ class MockEvent(MockSkymap):
         if self.skymaps_flag:
             print('Generating true GW sky positions...')
             self.make_true_3D_locations()  # Adds true values to self.truths
-            print(f'Confirming: {len(self.truths)} 3D locations have been sampled for skymaps with CL = {self.skymap_cl}')
+            print(f'Confirming: {len(self.truths)} 3D locations have been sampled')
         else:
             print('\nNot generating skymaps.')
 
@@ -100,7 +104,7 @@ class MockEvent(MockSkymap):
                     cls,
                     n_events: int,
                     f_agn: float,
-                    zmax: float,
+                    zdraw: float,
                     model_dict: dict,
                     hyperparam_dict_agn: dict,
                     hyperparam_dict_alt: dict,
@@ -112,8 +116,10 @@ class MockEvent(MockSkymap):
         
         ''' Make MockEvent instances with this method if you do not want any skymaps. '''
 
+        # TODO: make `low` and `high` arguments in class methods and skymap/events classes
+
         # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
-        Catalog = MockCatalog(n_agn=0, max_redshift=zmax, gw_box_radius=zmax)
+        Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
 
         obj = cls(
                 n_events=n_events,
@@ -124,7 +130,6 @@ class MockEvent(MockSkymap):
                 model_dict=model_dict,
                 hyperparam_dict_agn=hyperparam_dict_agn,
                 hyperparam_dict_alt=hyperparam_dict_alt,
-                skymap_cl=1.,
                 n_posterior_samples=n_posterior_samples,
                 cosmology=cosmology,
                 outdir=outdir,
@@ -137,8 +142,7 @@ class MockEvent(MockSkymap):
     def with_skymaps_without_agn(
                                 cls,
                                 n_events: int,
-                                zmax: float,
-                                skymap_cl: float,
+                                zdraw: float,
                                 model_dict: dict = None,
                                 hyperparam_dict_agn: dict = None,
                                 hyperparam_dict_alt: dict = None,
@@ -149,9 +153,11 @@ class MockEvent(MockSkymap):
                             ):
         
         ''' Let's you generate f_agn = 0 dataset without specifying an AGN catalog in the case you still want to use skymaps. '''
+
+        # TODO: make `low` and `high` arguments in class methods and skymap/events classes
         
         # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
-        Catalog = MockCatalog(n_agn=0, max_redshift=zmax, gw_box_radius=zmax)
+        Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
 
         obj = cls(
                 n_events=n_events,
@@ -162,7 +168,6 @@ class MockEvent(MockSkymap):
                 model_dict=model_dict,
                 hyperparam_dict_agn=hyperparam_dict_agn,
                 hyperparam_dict_alt=hyperparam_dict_alt,
-                skymap_cl=skymap_cl,
                 n_posterior_samples=n_posterior_samples,
                 cosmology=cosmology,
                 outdir=outdir,
@@ -177,7 +182,7 @@ class MockEvent(MockSkymap):
 
         if self.skymaps_flag:
             print('\nGenerating 3D position posteriors...')
-            self.make_3D_location_posteriors(low=100, high=10000)  # TODO: make `low` and `high` arguments in class methods and skymap/events classes
+            self.make_3D_location_posteriors(low=self.sky_area_low, high=self.sky_area_high)
             print('Done.')
 
         if self.model_dict is not None:
@@ -203,7 +208,7 @@ class MockEvent(MockSkymap):
             self.truths['from_agn'] = arr
 
             print('No sky locations used. Sampling GW redshifts according to uniform-in-comoving-volume distibution.')
-            r, _, _ = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.max_gw_redshift).value, n_samps=self.n_events)
+            r, _, _ = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.zdraw).value, n_samps=self.n_events)
             self.truths['rcom'] = r
             self.truths['redshift'] = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
         
@@ -322,16 +327,13 @@ if __name__ == '__main__':
     make_nice_plots()
 
     # N_TOT = 100
-    # GRID_SIZE = 5  # Radius of the whole grid in redshift
-    # GW_BOX_SIZE = 2  # Radius of the GW box in redshift
+    ZDRAW = 2
     N_EVENTS = int(100)
     F_AGN = 0.5
-    CL = 0.999
 
     ##### FAGN = 0 EVENTS WITH SKYMAPS #####
     # events = MockEvent.with_skymaps_without_agn(n_events=N_EVENTS,
-    #                                             zmax=GW_BOX_SIZE,
-    #                                             skymap_cl=CL)
+    #                                             zdraw=GW_BOX_SIZE)
     
     # events.make_posteriors()
     # print(events.posteriors)
@@ -352,16 +354,16 @@ if __name__ == '__main__':
         with open("hyperparam_alt.json", "r") as file:
             hyperparam_dict_alt = json.load(file)
     except FileNotFoundError:
-        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/hyperparam_agn.json", "r") as file:
+        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/hyperparam_agn.json", "r") as file:
             hyperparam_dict_agn = json.load(file)
-        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/hyperparam_alt.json", "r") as file:
+        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/hyperparam_alt.json", "r") as file:
             hyperparam_dict_alt = json.load(file)
 
 
     ##### EVENTS WITH EMPTY CATALOG #####
     # events = MockEvent.without_skymaps(n_events=N_EVENTS,
     #                                    f_agn=F_AGN,
-    #                                    zmax=GW_BOX_SIZE,
+    #                                    zdraw=GW_BOX_SIZE,
     #                                    model_dict=model_dict,
     #                                    hyperparam_dict_agn=hyperparam_dict_agn,
     #                                    hyperparam_dict_alt=hyperparam_dict_alt,
@@ -376,12 +378,12 @@ if __name__ == '__main__':
     #                         gw_box_radius=GW_BOX_SIZE,
     #                         completeness=1)
 
-    Catalog = MockCatalog.from_file(file_path='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN750000_ZMAX5_GWZMAX2.hdf5')
+    Catalog = MockCatalog.from_file(file_path='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN750000_ZMAX_3.hdf5')
     GWEvents = MockEvent(
                     n_events=N_EVENTS,
                     f_agn=F_AGN,
-                    catalog=Catalog, 
-                    skymap_cl=CL,
+                    zdraw=ZDRAW,
+                    catalog=Catalog,
                     ncpu=1,
                     n_posterior_samples=int(5e3)
                 )
@@ -394,7 +396,6 @@ if __name__ == '__main__':
     #                     hyperparam_dict_agn=hyperparam_dict_agn,
     #                     hyperparam_dict_alt=hyperparam_dict_alt,
     #                     catalog=Catalog, 
-    #                     skymap_cl=CL
     #                 )
 
     GWEvents.make_posteriors()

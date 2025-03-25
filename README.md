@@ -16,6 +16,8 @@ For example,
 
 `python3 compute_zprior.py --zmax 10 --nside 64 --catalog_name MOCK --catalog_path /your/path/output/catalogs/mockcat_NAGN750000_ZMAX5_GWZMAX2.hdf5 --maps_path /your/path/output/maps/mocknorm_NAGN750000_ZMAX5_GWZMAX2.fits --min_gals_for_threshold 10 --num_threads 6`
 
+<!-- python3 compute_zprior.py --zmax 3 --nside 32 --catalog_name MOCK --catalog_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN100000_ZMAX_3_SIGMA_0.01.hdf5' --maps_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN100000_ZMAX_3_SIGMA_0.01.fits' --min_gals_for_threshold 1 --num_threads 6 --zdraw 2 --zmin 1e-10 -->
+
 ### Generating mock GW data
 Run `mock_event_maker.py`. This will generate `.h5` files with two layers. 
 The top layer is the group called `mock`, which is analogous to the approximant group in real GW data.
@@ -37,5 +39,5 @@ For example,
 `bash make_skymaps.sh --indir /your/path/output/h5dir --outdir /your/path/output/fitsdir --jobs 4`
 
 With 1000 samples and 6 jobs, I get 5s/map.
-Doing 5000 samples and 6 jobs, 20-25 s/map.
+Doing 50000 samples and 6 jobs, 20-25 s/map.
 <!-- bash make_skymaps.sh --indir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_posterior_samples --outdir /net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/mock_skymaps --jobs 6 --skip 4700 -->

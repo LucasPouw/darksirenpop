@@ -35,6 +35,10 @@ def create_parser(*config):
             help="Reweight posterior samples with the same priors used to calculate the selection effects (default=True)."),
         "--zmax": argument(None, default=10.0, type=float,
             help="Upper redshift limit for integrals (default=10)"),
+        "--zmin": argument(None, default=1e-10, type=float,
+            help="Lower redshift limit for integrals (default=1e-10)"),
+        "--zdraw": argument(None, default=2, type=float,
+            help="Highest possible true redshift of GW events (default=2)."),
         
         "--H0": argument(None, default=67.9, type=float,
             help="Hubble constant value in cosmology (default=67.9)"),

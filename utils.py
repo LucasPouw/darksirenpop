@@ -97,10 +97,10 @@ def ipix_from_ra_dec(nside, ra, dec, nest=False):
 
 def get_cachedir(cachedir=None):
     if cachedir is None:
-        if 'MOCKGW_CACHE' in os.environ.keys():
-            cachedir = os.environ['MOCKGW_CACHE']
+        if 'DSP_CACHE' in os.environ.keys():
+            cachedir = os.environ['DSP_CACHE']
         else:
-            cachedir = os.path.join(os.environ['HOME'], '.cache/mockgw')
+            cachedir = os.path.join(os.environ['HOME'], '.cache/darksirenpop')
     os.makedirs(cachedir, exist_ok=True)
     return cachedir
 

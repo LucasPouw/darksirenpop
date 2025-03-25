@@ -21,7 +21,7 @@ class MockSkymap():
         f_agn: float,
         catalog: MockCatalog,
         catalog_path: str,
-        skymap_cl: float,  # TODO: Currently unused
+        zdraw:float,
         n_posterior_samples: int,
         cosmology,
         outdir: str,
@@ -40,7 +40,7 @@ class MockSkymap():
         self.f_agn = f_agn
         self.n_agn_events = round(self.f_agn * self.n_events)
         self.n_alt_events = self.n_events - self.n_agn_events
-        self.skymap_cl = skymap_cl
+        self.zdraw = zdraw  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
         self.n_posterior_samples = n_posterior_samples
         self.cosmo = cosmology
         self.outdir = outdir
@@ -54,8 +54,7 @@ class MockSkymap():
             self.MockCatalog = MockCatalog.from_file(catalog_path)
 
         cat = catalog.complete_catalog
-        self.catalog = cat.loc[cat['can_host_gw'] == True]  # From which to generate AGN GWs
-        self.max_gw_redshift = catalog.gw_box_radius  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
+        self.catalog = cat.loc[cat['redshift_true'] < self.zdraw].reset_index(drop=True)  # AGN from which to generate AGN GWs
 
         if (self.n_agn_events != 0) and (len(self.catalog) == 0) and (len(cat) != 0):
             sys.exit('\nTried to generate GWs from AGN, but only found AGN outside the GW box. Either provide more AGN or put f_agn = 0.\nExiting...')
@@ -66,8 +65,8 @@ class MockSkymap():
         host_idx = self._select_agn_hosts()
         self.truths['ra'] = self.catalog.loc[host_idx, 'ra_true']
         self.truths['dec'] = self.catalog.loc[host_idx, 'dec_true']
-        self.truths['rcom'] = self.catalog.loc[host_idx, 'rcom_true']
-        self.truths['rlum'] = self.catalog.loc[host_idx, 'rlum_true']
+        self.truths['comoving_distance'] = self.catalog.loc[host_idx, 'comoving_distance_true']
+        self.truths['luminosity_distance'] = self.catalog.loc[host_idx, 'luminosity_distance_true']
         self.truths['redshift'] = self.catalog.loc[host_idx, 'redshift_true']
         self.truths['from_agn'] = np.ones(self.n_agn_events, dtype=bool)
         self.truths = self.truths.reset_index(drop=True)  # Remove random ordering of indeces caused by sampling of the catalog
@@ -79,8 +78,8 @@ class MockSkymap():
             z = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
             temp_alt_df['ra'] = phi
             temp_alt_df['dec'] = 0.5*np.pi - theta
-            temp_alt_df['rcom'] = r
-            temp_alt_df['rlum'] = self.cosmo.luminosity_distance(z).value
+            temp_alt_df['comoving_distance'] = r
+            temp_alt_df['luminosity_distance'] = self.cosmo.luminosity_distance(z).value
             temp_alt_df['redshift'] = z
             temp_alt_df['from_agn'] = np.zeros(self.n_alt_events, dtype=bool)
             self.truths = pd.concat([self.truths, temp_alt_df], ignore_index=True)  # TODO: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
@@ -95,14 +94,14 @@ class MockSkymap():
                     mock_group = f.require_group("mock")  # Ensure 'mock' group exists
                     truth_group = mock_group.require_group("truths")  # Ensure 'truths' exists
 
-                    for column in ['ra', 'dec', 'rcom', 'rlum', 'redshift', 'from_agn']:
+                    for column in ['ra', 'dec', 'comoving_distance', 'luminosity_distance', 'redshift', 'from_agn']:
                         truth_group.create_dataset(column, data=self.truths[column].iloc[index], dtype="f8")
 
             except Exception as e:
                 sys.exit(f"Error in event {index}: {e}")
 
 
-    def make_3D_location_posteriors(self, low:int=100, high:int=10000) -> None:
+    def make_3D_location_posteriors(self, low:float=100, high:float=10000, sigma:float=0.01) -> None:
         ''' Sky position posteriors are modeled as a 2D VonMises-Fisher distribution '''
 
         # Get cartesian components of directional unit vector to GW origin
@@ -112,8 +111,7 @@ class MockSkymap():
         sky_areas_68p = self._sample_68p_sky_area(low, high)
         kappas = self._kappa_from_sky_area(sky_areas_68p)
 
-        dtrue = self.truths['rlum'].to_numpy()
-        sigma = 0.1  # 10% error on luminosity distance
+        dtrue = self.truths['luminosity_distance'].to_numpy()
         dobs = dtrue * (1. + sigma * np.random.normal(size=self.n_events))  # Observed distances
 
         args = [(i, x_true[i], y_true[i], z_true[i], kappas[i], dobs[i], sigma) for i in range(self.n_events)]
@@ -153,7 +151,7 @@ class MockSkymap():
 
             # Write samples to hdf5
             samples_table = Table([phi_samples, dec_samples, lumdist_samples, comdist_samples, redshift_samples], 
-                                      names=('ra', 'dec', 'rlum', 'rcom', 'redshift'))
+                                      names=('ra', 'dec', 'luminosity_distance', 'comoving_distance', 'redshift'))
             filename = os.path.join(self.outdir, f"gw_{index:05d}.h5")
 
             with h5py.File(filename, "a") as f:
@@ -172,7 +170,7 @@ class MockSkymap():
     
 
     def _sample_alt_coords(self):
-        r, theta, phi = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.max_gw_redshift).value, n_samps=self.n_alt_events)
+        r, theta, phi = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.zdraw).value, n_samps=self.n_alt_events)
         return r, theta, phi
     
 
@@ -194,21 +192,18 @@ if __name__ == '__main__':
     make_nice_plots()
 
     N_TOT = 1000
-    GRID_SIZE = 10  # Radius of the whole grid in redshift
-    GW_BOX_SIZE = 2  # Radius of the GW box in redshift
+    ZMAX = 10  # Radius of the whole grid in redshift
+    ZDRAW = 2  # Radius of the GW box in redshift
     
     Catalog = MockCatalog(n_agn=N_TOT,
-                            max_redshift=GRID_SIZE,
-                            gw_box_radius=GW_BOX_SIZE,
+                            max_redshift=ZMAX,
                             completeness=1)
 
     n_events = 5
     f_agn = 0.5
-    skymap_cl = 0.999
     SkyMaps = MockSkymap(n_events=n_events,
                         f_agn=f_agn,
-                        catalog=Catalog,
-                        skymap_cl=skymap_cl)
+                        catalog=Catalog)
     
     colors = ['red', 'blue', 'black']
     posteriors = ['x', 'y', 'z', 'r', 'theta', 'phi', 'redshift']
