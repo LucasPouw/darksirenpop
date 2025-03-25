@@ -83,13 +83,10 @@ def unpack_LOS_catalog(LOS_catalog_path):
     return LOS_catalog, nside, z_array, None
 
 
-def single_event_fixpop_3dpos_likelihood(LOS_catalog, 
-                                         nside, 
-                                         z_array,
+def single_event_fixpop_3dpos_likelihood(nside,
                                          posterior_samps_path, 
                                          field,
-                                         min_pixels=None,
-                                         key=None):
+                                         interp_list):
 
     n_mc_samps = int(1e4)
     # result = []
@@ -108,11 +105,13 @@ def single_event_fixpop_3dpos_likelihood(LOS_catalog,
     # print(n_unique_pix_sampled, 'unique sampled')
 
     p_agn = 0
-    for i, z_samp in tqdm(enumerate(mc_redshift)):
+    for i, z_samp in enumerate(mc_redshift):
         pix = mc_pix[i]
-        zprior = get_zprior(LOS_catalog, pix)
-        p_agn += np.interp(z_samp, fp=zprior, xp=z_array) #* skyprob_zprior_res[pix]  # TODO: figure out why the skyprob weighting is necessary
+        interp = interp_list[pix]
+        p_agn += interp(z_samp)
     p_agn /= n_mc_samps
+
+    p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps
 
     # result.append(p_agn)
 
@@ -126,16 +125,13 @@ def single_event_fixpop_3dpos_likelihood(LOS_catalog,
     # plt.savefig('comparison.pdf')
     # plt.show()
 
-    p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps
-
-    print(p_agn, p_alt)
+    # print(p_agn, p_alt)
     return p_agn, p_alt
 
 
 def multiple_event_fixpop_3dpos_likelihood(fagn_array, 
                                            posterior_samples_dictionary,
                                            LOS_catalog_path,
-                                           min_pixels=None,
                                            posterior_samples_field='mock'):
     
 
@@ -145,10 +141,17 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
     LOS_catalog, nside, z_array, _ = unpack_LOS_catalog(LOS_catalog_path)
     p_agn_arr = np.zeros(N_gws)
     p_alt_arr = np.zeros(N_gws)
+
+    # Major computation time save: keep interpolated zpriors in memory
+    interp_list = []
+    print('Interpolating zprior in each pixel...')
+    for pix in tqdm(range(int(nside**2 * 12))):
+        zprior = get_zprior(LOS_catalog, pix)
+        interp_list.append(interp1d(z_array, zprior, bounds_error=False, fill_value=0))
+
     # keys = []
-    # with open("pagn_sky_v6.txt", "w") as file1, open("palt_sky_v6.txt", "w") as file2:
-    for i, (key, _) in enumerate( posterior_samples_dictionary.items() ):
-        print(i, key, 'of', N_gws)
+    for i, (key, _) in tqdm(enumerate(posterior_samples_dictionary.items())):
+        # print(i, key, 'of', N_gws)
         # if key[1] == '0':
         #     print('skipping', key)
         #     continue
@@ -156,18 +159,14 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
         posterior_samps_path = posterior_samples_dictionary[key]
         field = posterior_samples_field  # TODO: allow for json such that you can do `fields[key]` cf. gwcosmo
 
-        pagn, palt = single_event_fixpop_3dpos_likelihood(LOS_catalog=LOS_catalog, 
-                                                                        nside=nside, 
-                                                                        z_array=z_array,
-                                                                        posterior_samps_path=posterior_samps_path, 
-                                                                        field=field,
-                                                                        min_pixels=min_pixels,
-                                                                        key=key)   
+        pagn, palt = single_event_fixpop_3dpos_likelihood(
+                                                        nside=nside, 
+                                                        posterior_samps_path=posterior_samps_path, 
+                                                        field=field,
+                                                        interp_list=interp_list
+                                                    )   
         
         p_agn_arr[i], p_alt_arr[i] = pagn, palt
-        np.save('pagn_sky_v6', p_agn_arr)
-        np.save('palt_sky_v6', p_alt_arr)
-
 
         # keys.append(key)  
         # print('breaking')
@@ -419,8 +418,7 @@ if __name__ == '__main__':
 
     multiple_event_fixpop_3dpos_likelihood(fagn_array=None, 
                                            posterior_samples_dictionary=posterior_samples_dictionary,
-                                           LOS_catalog_path=LOS_catalog_path, 
-                                           min_pixels=None,
+                                           LOS_catalog_path=LOS_catalog_path,
                                            posterior_samples_field='mock')
 
 
