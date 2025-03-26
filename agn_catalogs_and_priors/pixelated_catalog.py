@@ -261,7 +261,7 @@ class OldStyleCatalog(GalaxyCatalog):
         self.populate()
 
 
-# TODO: These are becoming obsolete, especially with the redshift array always constant - or make variable input
+# TODO: These are becoming obsolete, especially with the redshift array always constant - or make variable input?
 class OldStyleQuaia(OldStyleCatalog):
     def __init__(self, catalog_file = 'quaia.hdf5'):
         super().__init__(catalog_file = catalog_file, name = 'Quaia')

@@ -8,7 +8,8 @@ Rachel Gray
 import numpy as np
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
-from posterior_samples import *
+import json
+# from posterior_samples import *
 
 from utils import ra_dec_from_ipix, ipix_from_ra_dec
 import healpy as hp
@@ -20,7 +21,7 @@ from tqdm import tqdm
 from scipy.integrate import quad
 from astropy.cosmology import FlatLambdaCDM
 import matplotlib.pyplot as plt
-
+import time
 
 ZMIN = 1e-10
 ZDRAW = 2
@@ -83,49 +84,45 @@ def unpack_LOS_catalog(LOS_catalog_path):
     return LOS_catalog, nside, z_array, None
 
 
+def load_posterior_samples(path, approximant):
+    with h5py.File(path, 'r') as file:
+        data = file[approximant]
+        redshift = data['posterior_samples']['redshift']
+        ra = data['posterior_samples']['ra']
+        dec = data['posterior_samples']['dec']
+        nsamps = len(ra)
+    return redshift, ra, dec, nsamps
+
+
+
 def single_event_fixpop_3dpos_likelihood(nside,
                                          posterior_samps_path, 
                                          field,
-                                         interp_list):
+                                         interp_list,
+                                         n_mc_samps=int(1e4)):
 
-    n_mc_samps = int(1e4)
     # result = []
     # trials = [int(1e1), int(5e1), int(1e2), int(5e2), int(1e3), int(5e3), int(1e4), int(5e4)]
     # for n_mc_samps in trials:
-    Samples = load_posterior_samples(posterior_samps_path, field=field)
+    redshift, ra, dec, nsamps = load_posterior_samples(posterior_samps_path, approximant=field)
 
-    idx_array = np.random.choice(np.arange(Samples.nsamples), size=n_mc_samps)
+    idx_array = np.random.choice(np.arange(nsamps), size=n_mc_samps)
 
-    mc_ra = Samples.ra[idx_array]
-    mc_dec = Samples.dec[idx_array]
+    mc_ra = ra[idx_array]
+    mc_dec = dec[idx_array]
     mc_pix = ipix_from_ra_dec(nside=nside, ra=mc_ra, dec=mc_dec, nest=True)
-    mc_redshift = Samples.redshift[idx_array]
+    mc_redshift = redshift[idx_array]
 
-    # n_unique_pix_sampled = len( np.unique(mc_pix) )
-    # print(n_unique_pix_sampled, 'unique sampled')
-
+    unique_pix = np.unique(mc_pix)  # Loop over the pixels that have been sampled
     p_agn = 0
-    for i, z_samp in enumerate(mc_redshift):
-        pix = mc_pix[i]
-        interp = interp_list[pix]
-        p_agn += interp(z_samp)
+    for pix in unique_pix:
+        z_samp = mc_redshift[mc_pix == pix]     # Find all redshift samples in the pixel
+        interp = interp_list[pix]               # Get the interpolant of the LOS zprior in this pixel
+        p_agn += np.sum(interp(z_samp))         # Evaluate zprior at sampled redshift
     p_agn /= n_mc_samps
 
     p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps
 
-    # result.append(p_agn)
-
-    # zz = np.linspace(ZMIN, ZMAX, 1000)
-    # plt.figure()
-    # height, b, _ = plt.hist(Samples.redshift, density=True, bins=100, label='Posterior')
-    # mids = b + np.diff(b)[0] / 2
-    # plt.plot(zz, dVdz_prior(zz), color='red', label='Prior')
-    # plt.plot(mids[:-1], dVdz_prior(mids[:-1]) * height, zorder=5, color='black', label='product')
-    # plt.legend()
-    # plt.savefig('comparison.pdf')
-    # plt.show()
-
-    # print(p_agn, p_alt)
     return p_agn, p_alt
 
 
@@ -164,7 +161,7 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
                                                         posterior_samps_path=posterior_samps_path, 
                                                         field=field,
                                                         interp_list=interp_list
-                                                    )   
+                                                    ) 
         
         p_agn_arr[i], p_alt_arr[i] = pagn, palt
 
@@ -175,8 +172,8 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
     LOS_catalog.close()
 
     # np.save('keys', np.array(keys))
-    np.save('pagn_sky_v6', p_agn_arr)
-    np.save('palt_sky_v6', p_alt_arr)
+    np.save('pagn_sky_v7', p_agn_arr)
+    np.save('palt_sky_v7', p_alt_arr)
 
     return _
 
@@ -410,7 +407,7 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
 
 if __name__ == '__main__':
 
-    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/posterior_samples_mock_v6.json'
+    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/posterior_samples_mock_v7.json'
     with open(post_path) as f:
         posterior_samples_dictionary = json.load(f)
 

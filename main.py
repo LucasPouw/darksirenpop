@@ -14,10 +14,10 @@ def main():
                     n_events=N_EVENTS,
                     f_agn=F_AGN,
                     zdraw=ZDRAW,
-                    sky_area_low=160,
-                    sky_area_high=161,
+                    sky_area_low=10,
+                    sky_area_high=20,
                     catalog=Catalog,
-                    outdir=os.path.join(sys.path[0], "output/mock_posteriors_v6"),
+                    outdir=os.path.join(sys.path[0], "output/mock_posteriors_v7"),
                     ncpu=1,  # Not doing mp
                     n_posterior_samples=int(5e4)
                 )

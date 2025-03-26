@@ -66,6 +66,8 @@ class MockEvent(MockSkymap):
                 os.mkdir(outdir)
             else:
                 sys.exit('Not removing data. Please run again with a new output directory.')
+        else:
+            os.mkdir(outdir)
 
         self.outdir = outdir
 

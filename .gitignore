@@ -2,7 +2,7 @@ output
 __pycache__
 
 test*
-pagn.npy
-palt.npy
+*.npy
 old*
 *.json
+*.pdf
