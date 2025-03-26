@@ -132,7 +132,7 @@ class MockCatalog:
                 cosmo_group.attrs['Ob0'] = 'None'
 
     
-    def make_norm_map(self, nside=32, filepath=None):
+    def make_norm_map(self, nside, filepath=None):
         print('Making norm map from INCOMPLETE catalog...')
         npix = hp.nside2npix(nside)
         pix_indices = hp.ang2pix(nside, np.pi/2 - self.incomplete_catalog['dec'], self.incomplete_catalog['ra'], nest=True)
@@ -211,7 +211,7 @@ if __name__ == '__main__':
                             max_redshift=MAX_REDSHIFT,
                             redshift_error=SIGMA)  # Shai Hulud is the Maker of the Deep Desert...and also this catalog
 
-    fname = f'NAGN{N_TOT}_ZMAX_{MAX_REDSHIFT}_SIGMA_{SIGMA}'
+    fname = f'NAGN_{N_TOT}_ZMAX_{MAX_REDSHIFT}_SIGMA_{SIGMA}'
     script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
     output_path = os.path.join(script_dir, "../output")
     output_path = os.path.abspath(output_path)  # Normalize path to resolve '..'

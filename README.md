@@ -16,7 +16,7 @@ For example,
 
 `python3 compute_zprior.py --zmax 10 --nside 64 --catalog_name MOCK --catalog_path /your/path/output/catalogs/mockcat_NAGN750000_ZMAX5_GWZMAX2.hdf5 --maps_path /your/path/output/maps/mocknorm_NAGN750000_ZMAX5_GWZMAX2.fits --min_gals_for_threshold 10 --num_threads 6`
 
-<!-- python3 compute_zprior.py --zmax 3 --nside 32 --catalog_name MOCK --catalog_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN100000_ZMAX_3_SIGMA_0.01.hdf5' --maps_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN100000_ZMAX_3_SIGMA_0.01.fits' --min_gals_for_threshold 1 --num_threads 6 --zdraw 2 --zmin 1e-10 -->
+<!-- python3 compute_zprior.py --zmax 3 --nside 32 --catalog_name MOCK --catalog_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete.hdf5' --maps_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete.fits' --min_gals_for_threshold 1 --num_threads 6 --zdraw 2 --zmin 1e-10 -->
 
 ### Generating mock GW data
 Run `mock_event_maker.py`. This will generate `.h5` files with two layers. 

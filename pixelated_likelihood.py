@@ -94,6 +94,13 @@ def load_posterior_samples(path, approximant):
     return redshift, ra, dec, nsamps
 
 
+def c_omega(pix, nside):
+    '''Completeness as a function of sky position, given by the pixel index'''
+    npix = hp.nside2npix(nside)
+    completeness = np.zeros_like(pix)
+    completeness[pix < npix // 2] = 1
+    return completeness
+
 
 def single_event_fixpop_3dpos_likelihood(nside,
                                          posterior_samps_path, 
@@ -114,16 +121,20 @@ def single_event_fixpop_3dpos_likelihood(nside,
     mc_redshift = redshift[idx_array]
 
     unique_pix = np.unique(mc_pix)  # Loop over the pixels that have been sampled
-    p_agn = 0
-    for pix in unique_pix:
-        z_samp = mc_redshift[mc_pix == pix]     # Find all redshift samples in the pixel
-        interp = interp_list[pix]               # Get the interpolant of the LOS zprior in this pixel
-        p_agn += np.sum(interp(z_samp))         # Evaluate zprior at sampled redshift
-    p_agn /= n_mc_samps
+    completeness = c_omega(unique_pix, nside)
+    cw_p_agn = 0
+    cw_p_alt = 0
+    for i, pix in enumerate(unique_pix):
+        z_samp = mc_redshift[mc_pix == pix]                         # Find all redshift samples in the pixel
+        interp = interp_list[pix]                                   # Get the interpolant of the LOS zprior in this pixel
+        cw_p_agn += np.sum(interp(z_samp)) * completeness[i]        # Evaluate zprior at sampled redshift
+        cw_p_alt += np.sum(dVdz_prior(z_samp)) * completeness[i]    # Same with alternative hypothesis due to (1 - cf_agn)p_alt = p_alt - f_agn * c p_alt term
+    cw_p_agn /= n_mc_samps
+    cw_p_alt /= n_mc_samps
 
     p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps
 
-    return p_agn, p_alt
+    return cw_p_agn, cw_p_alt, p_alt
 
 
 def multiple_event_fixpop_3dpos_likelihood(fagn_array, 
@@ -136,7 +147,8 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
 
     # Calculate likelihood for each event
     LOS_catalog, nside, z_array, _ = unpack_LOS_catalog(LOS_catalog_path)
-    p_agn_arr = np.zeros(N_gws)
+    cw_p_agn_arr = np.zeros(N_gws)
+    cw_p_alt_arr = np.zeros(N_gws)
     p_alt_arr = np.zeros(N_gws)
 
     # Major computation time save: keep interpolated zpriors in memory
@@ -156,14 +168,14 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
         posterior_samps_path = posterior_samples_dictionary[key]
         field = posterior_samples_field  # TODO: allow for json such that you can do `fields[key]` cf. gwcosmo
 
-        pagn, palt = single_event_fixpop_3dpos_likelihood(
+        cw_p_agn, cw_p_alt, p_alt = single_event_fixpop_3dpos_likelihood(
                                                         nside=nside, 
                                                         posterior_samps_path=posterior_samps_path, 
                                                         field=field,
                                                         interp_list=interp_list
                                                     ) 
         
-        p_agn_arr[i], p_alt_arr[i] = pagn, palt
+        cw_p_agn_arr[i], cw_p_alt_arr[i], p_alt_arr[i] = cw_p_agn, cw_p_alt, p_alt
 
         # keys.append(key)  
         # print('breaking')
@@ -172,8 +184,9 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
     LOS_catalog.close()
 
     # np.save('keys', np.array(keys))
-    np.save('pagn_sky_v7', p_agn_arr)
-    np.save('palt_sky_v7', p_alt_arr)
+    np.save('cweighted_pagn_sky_v8', cw_p_agn_arr)
+    np.save('cweighted_palt_sky_v8', cw_p_alt_arr)
+    np.save('palt_sky_v8', p_alt_arr)
 
     return _
 
@@ -407,11 +420,11 @@ def multiple_event_fixpop_3dpos_likelihood(fagn_array,
 
 if __name__ == '__main__':
 
-    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/posterior_samples_mock_v7.json'
+    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
     with open(post_path) as f:
         posterior_samples_dictionary = json.load(f)
 
-    LOS_catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/LOSzpriors/MOCK_LOS_redshift_prior_lenzarray_12000_zdraw_2.0_zmax_3.0_nside_32_nagn_100000_sigma_0.01_pixel_index_None.hdf5'
+    LOS_catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/LOSzpriors/LOS_redshift_prior_mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_lenzarray_12000_zdraw_2.0_nside_32_pixel_index_None.hdf5'
 
     multiple_event_fixpop_3dpos_likelihood(fagn_array=None, 
                                            posterior_samples_dictionary=posterior_samples_dictionary,

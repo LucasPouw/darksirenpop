@@ -172,7 +172,8 @@ def main():
     offset = opts.offset  # TODO: What is the offset for? -Lucas
     denom = 1.
 
-    fname = f'/LOSzpriors/{opts.catalog_name}_LOS_redshift_prior_lenzarray_{len(zarray)}_zdraw_{zdraw}_zmax_{zmax}_nside_{nside}_nagn_{len(catalog)}_sigma_{SIGMA}_pixel_index_{opts.pixel_index}.hdf5'
+    catname = opts.catalog_path.split('/')[-1][:-5]
+    fname = f'/LOSzpriors/LOS_redshift_prior_{catname}_lenzarray_{len(zarray)}_zdraw_{zdraw}_nside_{nside}_pixel_index_{opts.pixel_index}.hdf5'
     script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
     output_path = os.path.join(script_dir, "../output")
     output_path = os.path.abspath(output_path)  # Normalize path to resolve '..'
@@ -195,7 +196,17 @@ def main():
     with mp.Pool(n_threads) as p:
         # Create the mp threads
         logger.info(f"Launching {n_threads} worker threads")
-        args=[(task_queue, results_queue, catalog, nside, galaxy_norm, zarray, zmax, opts.min_gals_for_threshold, zmin, zdraw, cosmo) for _ in range(n_threads)]
+        args=[(task_queue, 
+               results_queue, 
+               catalog, 
+               nside, 
+               galaxy_norm, 
+               zarray, 
+               zmax, 
+               opts.min_gals_for_threshold, 
+               zmin, 
+               zdraw, 
+               cosmo) for _ in range(n_threads)]
 
         p.starmap_async(LOS_mp_thread, args)
         for pixel_index in pixel_indices: task_queue.put(pixel_index)
