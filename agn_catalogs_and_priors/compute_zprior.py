@@ -64,7 +64,7 @@ def handle_results(h5file: h5py.File, queue: mp.Queue, npix=1, denom=1., offset=
             f"{pixel_index}", (len(p_of_z),), dtype='f', data=p_of_z)
 
 
-def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax, min_gals_for_threshold, zmin, zdraw, cosmo):
+def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax, min_gals_for_threshold, zmin, zdraw, sigma, cosmo):
     """
     Handles the multi process threading for multiple pixels.
     """
@@ -83,6 +83,7 @@ def LOS_mp_thread(in_queue, out_queue, catalog, nside, galaxy_norm, zarray, zmax
                                                 min_gals_for_threshold=min_gals_for_threshold,
                                                 zdraw=zdraw,
                                                 zmin=zmin,
+                                                sigma=sigma,
                                                 cosmo=cosmo
                                             )
             (p_of_z, z_array) = LOS_zprior.create_redshift_prior()
@@ -96,6 +97,7 @@ def main():
     parser = create_parser("--zmax",
                            "--zmin",
                            "--zdraw",
+                           "--sigma",
                            "--nside", 
                            "--coarse_nside",
                            "--catalog_name",
@@ -112,11 +114,11 @@ def main():
     zmin = float(opts.zmin)
     zdraw = float(opts.zdraw)
     nside = int(opts.nside)
+    sigma = float(opts.sigma)
 
     # TODO: make this not hard-coded
     cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
     zarray = np.logspace(-10, np.log10(zdraw), 12000)
-    SIGMA = 0.01
     # zarray = np.linspace(0, zmax, 1000)  
 
     #############################################################
@@ -140,7 +142,7 @@ def main():
     catalog = load_catalog_from_path(name=opts.catalog_name, catalog_path=opts.catalog_path)
     catalog.clean_cache(mtime=np.inf)  # Clean cache
     catalog.select_pixel(nside=nside, pixel_index=0)  # Put correct indexing file in cache, otherwise multiprocessing breaks and I'm not going to fix that -Lucas
-    _ = get_norm_interp(zmin=zmin, zmax=zmax, sigma=SIGMA, npoints=10000, cosmo=cosmo, cachedir=None)  # Same thing, but this time it's my own fault -Lucas
+    _ = get_norm_interp(zmin=zmin, zmax=zmax, sigma=sigma, npoints=10000, cosmo=cosmo, cachedir=None)  # Same thing, but this time it's my own fault -Lucas
     
     # # Try to use all sky map if it exists
     # norm_map_path = f"{maps_path}/norm_map_{opts.catalog}_nside{coarse_nside}_pixel_indexNone_zmax{str(zmax).replace('.', ',')}.fits"
@@ -206,6 +208,7 @@ def main():
                opts.min_gals_for_threshold, 
                zmin, 
                zdraw, 
+               sigma,
                cosmo) for _ in range(n_threads)]
 
         p.starmap_async(LOS_mp_thread, args)

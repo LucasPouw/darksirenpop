@@ -54,7 +54,7 @@ def compute_norm(zmin, zmax, sigma, npoints, cosmo):
     for observed redshifts between zmin and zmax.
     '''
 
-    observations = np.geomspace(zmin, zmax, npoints)
+    observations = np.geomspace(zmin, 1.1 * zmax, npoints)  # Calculate normalizations slightly above requested zmax, because of random fluctuations allowing for z_obs > z_max in mock AGN catalog
     norm_arr = np.zeros(npoints)
 
     print('Calculating normalizations...')
@@ -84,7 +84,7 @@ def get_norm_interp(zmin, zmax, sigma, npoints, cosmo, cachedir=None):
     if cachedir is None:
         cachedir = get_cachedir()
 
-    filename = f'normalizations_zmin_{zmin}_zmax_{zmax}_sigma_{sigma}_npoints_{npoints}.npz'
+    filename = f'normalizations_zmin_{float(zmin)}_zmax_{float(zmax)}_sigma_{float(sigma)}_npoints_{int(npoints)}.npz'
     filepath = os.path.join(cachedir, filename)
     
     try:
@@ -131,11 +131,11 @@ class LineOfSightRedshiftPrior:
                  galaxy_norm:str,
                  z_array:np.ndarray,  # TODO: Why return this if it is always the same?
                  zdraw:float,
-                 zmin:float=1e-10,
-                 zmax:float=3.,
-                 sigma:float=0.05,
+                 zmin:float,
+                 zmax:float,
+                 sigma:float,
                  npoints_norm:int=10000,
-                 min_gals_for_threshold:int=10,
+                 min_gals_for_threshold:int=1,
                  cosmo=FlatLambdaCDM(H0=67.9, Om0=0.3065),
                  cachedir:str=None):
         
@@ -184,22 +184,19 @@ class LineOfSightRedshiftPrior:
 
         if self.galaxy_norm != 0:  # If pixel is not empty
 
-            for i in range(len(self.zs)):
-                zobs = self.zs[i]
-                if zobs > self.zmax:
-                    print('Skipping observation z=', zobs)
-                    continue
-                norm = self.norminterp(zobs)
-                pz_G += agn_posterior(self.z_array, zobs, self.sigma, norm, self.cosmo)
-
+            for i, zobs in enumerate(self.zs):
+                pz_G += agn_posterior(self.z_array, zobs, self.sigma, self.norminterp(zobs), self.cosmo)
                 # low_z_lim, high_z_lim = (0 - self.zs[i]) / self.sigmazs[i], (self.zmax - self.zs[i]) / self.sigmazs[i]  # Set redshift limits so that galaxies can't have negative z - between 0 and zmax
                 # pz_G += truncnorm.pdf(self.z_array, low_z_lim, high_z_lim, self.zs[i], self.sigmazs[i])
-
             # pz_G /= self.galaxy_norm
 
             # Normalize GW pior between z = 0 and z = zdraw (hopefully good enough for mock data, not using galaxy_norm)
             zprior_interp = interp1d(self.z_array, pz_G)
-            pz_G /= quad(zprior_interp, self.zmin, self.zdraw)[0]
+            norm2zdraw = quad(zprior_interp, self.zmin, self.zdraw)[0]
+            if norm2zdraw != 0:  # Could be the case that the detected AGN are far above zdraw and don't contribute at z < zdraw.
+                pz_G /= norm2zdraw
+            else:
+                pz_G = np.zeros(len(self.z_array))
             
         return pz_G, self.z_array
     
@@ -211,27 +208,33 @@ if __name__ == '__main__':
     ZMAX = 3
     COSMO = FlatLambdaCDM(H0=67.9, Om0=0.3065)
 
-    zarray = np.logspace(-10, np.log10(ZDRAW), 3000)
+    zarray = np.logspace(-10, np.log10(ZDRAW), 12000)
 
     from pixelated_catalog import load_catalog_from_path
 
-    CAT_PATH = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN750000_ZMAX_3.hdf5'
+    CAT_PATH = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete.hdf5'
     GalCat = load_catalog_from_path(name='MOCK', catalog_path=CAT_PATH)
 
-    NORM_PATH = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN750000_ZMAX_3.fits'
+    NORM_PATH = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete.fits'
 
-    high_nside = 64
+    high_nside = 32
 
-    LOS_zprior = LineOfSightRedshiftPrior(pixel_index=1,
+    LOS_zprior = LineOfSightRedshiftPrior(pixel_index=8099,
                                             galaxy_catalog=GalCat, 
                                             nside=high_nside, 
                                             z_array=zarray,
                                             galaxy_norm=NORM_PATH,
                                             zdraw=ZDRAW,
                                             zmax=ZMAX,
-                                            min_gals_for_threshold=10,
+                                            min_gals_for_threshold=1,
+                                            zmin=ZMIN,
+                                            sigma=0.01,
                                             cosmo=COSMO)
     p_of_z, _ = LOS_zprior.create_redshift_prior()
+    print(p_of_z)
+
+    interpolant = interp1d(zarray, p_of_z, bounds_error=False, fill_value=0)
+    print(interpolant(zarray))
 
     plt.figure()
     plt.plot(zarray, p_of_z)

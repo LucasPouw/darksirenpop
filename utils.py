@@ -83,16 +83,23 @@ def check_equal(a, b):
     return sorted(a) == sorted(b)
 
 
-def ra_dec_from_ipix(nside, ipix, nest=False):
+def ra_dec_from_ipix(nside, ipix, nest=True):
     """RA and dec from HEALPix index"""
     (theta, phi) = hp.pix2ang(nside, ipix, nest=nest)
     return (phi, np.pi/2.-theta)
 
 
-def ipix_from_ra_dec(nside, ra, dec, nest=False):
+def ipix_from_ra_dec(nside, ra, dec, nest=True):
     """HEALPix index from RA and dec"""
     (theta, phi) = (np.pi/2.-dec, ra)
     return hp.ang2pix(nside, theta, phi, nest=nest)
+
+
+def make_pixdict(low_nside, high_nside, nest=True):
+    high_pix = np.arange(hp.nside2npix(high_nside))
+    high_radec = ra_dec_from_ipix(nside=high_nside, ipix=high_pix, nest=nest)
+    low_pix = ipix_from_ra_dec(low_nside, *high_radec, nest=nest)
+    return {key: value for key, value in zip(high_pix, low_pix)}
 
 
 def get_cachedir(cachedir=None):
