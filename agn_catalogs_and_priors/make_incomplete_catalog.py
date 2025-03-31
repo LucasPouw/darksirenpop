@@ -64,14 +64,14 @@ def make_new_catalog(catalog_path, nside, inccat_path, norm_map_path, c_map_path
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
-    nside = 16
+    nside = 32
     pix = np.arange(hp.nside2npix(nside))
     c = c_omega(pix, nside)
 
     cat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01.hdf5'
-    inccat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v15.hdf5'
-    norm_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v15.fits'
-    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v15.fits'
+    inccat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v17.hdf5'
+    norm_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v17.fits'
+    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v17.fits'
     make_new_catalog(cat_path, nside, inccat_path, norm_map_path, c_map_path)
 
     # plt.figure()

@@ -118,7 +118,7 @@ class MockSkymap():
         for arg in tqdm(args):
             _ = self._process_single_event_3dloc(arg)
 
-        # TODO: WHY IS THIS SO SLOW???
+        # TODO: WHY IS THIS SO SLOW??? Answer: I think because it should be called below the __main__ stuff
         # with Pool(processes=min(cpu_count(), self.ncpu), maxtasksperchild=10) as pool:
         #     _ = list( tqdm(pool.imap(self._process_single_event_3dloc, args), total=self.n_events) )
 
