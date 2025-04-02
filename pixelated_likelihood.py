@@ -112,6 +112,7 @@ def single_event_fixpop_3dpos_likelihood(i,
     mc_pix = ipix_from_ra_dec(nside=zprior_nside, ra=mc_ra, dec=mc_dec, nest=True)
     mc_redshift = redshift[idx_array]
 
+    # start = time.time()
     unique_pix = np.unique(mc_pix)  # Loop over the pixels that have been sampled
     cw_p_agn = 0
     cw_p_alt = 0
@@ -129,25 +130,26 @@ def single_event_fixpop_3dpos_likelihood(i,
     cw_p_agn /= n_mc_samps
     cw_p_alt /= n_mc_samps
     p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps  # Also save unweighted value
+    # print('that took', time.time() - start)
     return i, cw_p_agn, cw_p_alt, p_alt
 
 
 def main():
 
-    ###############################################
+    ############################################### INPUTS ###############################################
     post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
     with open(post_path) as f:
         posterior_samples_dictionary = json.load(f)
 
-    # LOS_catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/LOSzpriors/LOS_redshift_prior_mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v16_lenzarray_12000_zdraw_2.0_nside_16_pixel_index_None.hdf5'
-    LOS_catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/LOSzpriors/MOCK_LOS_redshift_prior_lenzarray_12000_zdraw_2.0_zmax_3.0_nside_32_nagn_100000_sigma_0.01_pixel_index_None.hdf5'
-    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v17.fits'
-    cmap_nside = 32
+    LOS_catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/LOSzpriors/LOS_redshift_prior_mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v24_lenzarray_12000_zdraw_2.0_nside_1_pixel_index_None.hdf5'
+    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v24.fits'
+    outfilename = 'v24'
+    cmap_nside = 1
     posterior_samples_field = 'mock'
     n_mc_samps = int(1e4)
     ncpu = cpu_count()
 
-    #################################################
+    #######################################################################################################
     
 
     N_gws = len(posterior_samples_dictionary.items())
@@ -158,7 +160,8 @@ def main():
     cw_p_alt_arr = np.zeros(N_gws)
     p_alt_arr = np.zeros(N_gws)
 
-    completeness = hp.read_map(c_map_path, nest=True)
+    cmap = hp.read_map(c_map_path, nest=True)
+    completeness = hp.ud_grade(cmap, nside_out=cmap_nside, order_in='NESTED', order_out='NESTED')
     pixdict = make_pixdict(low_nside=cmap_nside, high_nside=nside)
 
     # Major computation time save: keep interpolated zpriors in memory
@@ -195,9 +198,9 @@ def main():
   
     LOS_catalog.close()
 
-    np.save('cweighted_pagn_sky_v17', cw_p_agn_arr)
-    np.save('cweighted_palt_sky_v17', cw_p_alt_arr)
-    np.save('palt_sky_v17', p_alt_arr)
+    np.save(f'cweighted_pagn_sky_{outfilename}', cw_p_agn_arr)
+    np.save(f'cweighted_palt_sky_{outfilename}', cw_p_alt_arr)
+    np.save(f'palt_sky_{outfilename}', p_alt_arr)
 
     return _
 

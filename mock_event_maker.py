@@ -1,39 +1,47 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from astropy.cosmology import FlatLambdaCDM
 import sys, os
 import astropy.units as u
-from utils import fast_z_at_value, make_nice_plots, check_equal, uniform_shell_sampler
+from utils import fast_z_at_value, make_nice_plots, check_equal, uniform_shell_sampler, spherical2cartesian, cartesian2spherical
 from agn_catalogs_and_priors.mock_catalog_maker import MockCatalog
-from mock_skymap_maker import MockSkymap
 from priors import *
 import json
 import shutil
+from default_arguments import *
+from tqdm import tqdm
+import h5py
+from scipy.stats import vonmises_fisher
+from astropy.table import Table
+from concurrent.futures import as_completed, ThreadPoolExecutor
+from multiprocessing import cpu_count
 
 
-class MockEvent(MockSkymap):
+class MockEvent:
 
     def __init__(
                 self,
                 n_events: int,
                 f_agn: float,
                 zdraw: float,
-                sky_area_low: float=100,
-                sky_area_high: float=10000,
+                use_extrinsic: bool = True,
+                use_intrinsic: bool = True,
+                sky_area_low: float=DEFAULT_SKY_AREA_LOW,
+                sky_area_high: float=DEFAULT_SKY_AREA_HIGH,
+                lumdist_relerr: float=DEFAULT_LUMDIST_RELERR,
                 catalog: MockCatalog = None,    # Either a MockCatalog object you just made
                 catalog_path: str = None,       # Or a pre-existing one that is stored in hdf5 format
-                use_skymaps: bool = True,
                 model_dict: dict = None,
                 hyperparam_dict_agn: dict = None,
                 hyperparam_dict_alt: dict = None,
-                n_posterior_samples: int = int(5e4),
-                cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065),
-                outdir: str=os.path.join(sys.path[0], "output/mock_gw_data"),
-                ncpu: int=4
+                n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
+                cosmology = DEFAULT_COSMOLOGY,
+                outdir: str=DEFAULT_POSTERIOR_OUTDIR,
+                ncpu: int=DEFAULT_N_CPU
             ):
         
         """
+        OUTDATED DOCSTRING
+        
         If you don't want skymaps, call MockEvent.without_skymaps()
         If you want skymaps while f_agn = 0, call MockEvent.with_skymaps_without_agn()
         In both these cases, provide zdraw: the maximum redshift to generate GWs from
@@ -42,158 +50,173 @@ class MockEvent(MockSkymap):
         catalog: MockCatalog        
         """
         
-        # Inherit all properties and methods from MockSkymap
-        super().__init__(
-                        n_events,
-                        f_agn,
-                        catalog,
-                        catalog_path,
-                        zdraw,
-                        n_posterior_samples,
-                        cosmology,
-                        outdir,
-                        ncpu
-                    )
-        
         if os.path.isdir(outdir):
-            inp = None
-            while inp not in ['y', 'yes', 'n', 'no']:
-                inp = input(f'Found existing output directory: `{outdir}`. Remove existing data? (y/n)')
+            if len(os.listdir(outdir)) != 0:
+                inp = None
+                while inp not in ['y', 'yes', 'n', 'no']:
+                    inp = input(f'Found existing data in output directory: `{outdir}`. DELETE existing data? (y/n)')
 
-            if inp in ['y', 'yes']:
-                print('Erasing existing data...')
-                shutil.rmtree(outdir)
-                os.mkdir(outdir)
-            else:
-                sys.exit('Not removing data. Please run again with a new output directory.')
+                if inp in ['y', 'yes']:
+                    print('Erasing existing data...')
+                    shutil.rmtree(outdir)
+                    os.mkdir(outdir)
+                else:
+                    sys.exit('Not removing data. Please run again with a new output directory.')
         else:
             os.mkdir(outdir)
 
         self.outdir = outdir
-
-        self.skymaps_flag = use_skymaps
-        self.sky_area_low = sky_area_low
-        self.sky_area_high = sky_area_high
+        self.n_events = n_events
+        self.f_agn = f_agn
+        self.n_agn_events = round(self.f_agn * self.n_events)
+        self.n_alt_events = self.n_events - self.n_agn_events
+        self.zdraw = zdraw  # Maximum redshift to generate ALT GWs from, currently using doing this uniform in comoving volume
+        self.n_posterior_samples = n_posterior_samples
+        self.cosmo = cosmology
+        self.ncpu = ncpu
+        self.extrinsic_flag = use_extrinsic
+        self.intrinsic_flag = use_intrinsic
+        self.lumdist_relerr = lumdist_relerr
         self.truths = pd.DataFrame()
 
-        # TODO: don't use self.posteriors anymore. The make_posteriors() method should write directly to hdf5.
-        self.posteriors = pd.DataFrame()  # Call make_posteriors() method to make posteriors, call again to make new posteriors from the same true values in self.truths
+        if self.extrinsic_flag:
+            assert isinstance(catalog, MockCatalog), 'Provided catalog is not MockCatalog instance.'
 
-        if self.skymaps_flag:
+            if catalog is not None:
+                print('Using provided MockCatalog object.')
+                self.MockCatalog = catalog
+            elif catalog_path is not None:
+                print(f'Using pre-existing AGN catalog located at `{catalog_path}`.')
+                self.MockCatalog = MockCatalog.from_file(catalog_path)
+
+            cat = catalog.complete_catalog
+            self.catalog = cat.loc[cat['redshift_true'] < self.zdraw].reset_index(drop=True)  # AGN from which to generate AGN GWs
+
+            if (self.n_agn_events != 0) and (len(self.catalog) == 0) and (len(cat) != 0):
+                sys.exit('\nTried to generate GWs from AGN, but only found AGN outside the GW box. Either provide more AGN or put f_agn = 0.\nExiting...')
+
+            self.sky_area_low = sky_area_low
+            self.sky_area_high = sky_area_high
+
             print('Generating true GW sky positions...')
-            self.make_true_3D_locations()  # Adds true values to self.truths
-            print(f'Confirming: {len(self.truths)} 3D locations have been sampled')
-        else:
-            print('\nNot generating skymaps.')
-
-        self.model_dict = model_dict
-        self.hyperparam_dict_agn = hyperparam_dict_agn
-        self.hyperparam_dict_alt = hyperparam_dict_alt
-        if self.model_dict is not None or self.hyperparam_dict_agn is not None or self.hyperparam_dict_alt is not None:
-            assert self.model_dict is not None and self.hyperparam_dict_agn is not None and self.hyperparam_dict_alt is not None, 'Either provide all three of `model_dict`, `param_dict_agn`, `param_dict_alt` or none.'
-            self.agn_models, self.alt_models = self._get_models()
-        else:
-            self.agn_models, self.alt_models = None, None
-
-        if self.model_dict is not None:
-            print('\nGenerating true GW intrinsic parameter values...')
-            self.inject_events()  # Adds true values to self.truths
+            self.make_true_extrinsic_parameter_values()  # Adds true values to self.truths
             print('Done.')
+        else:
+            print('\nNot generating extrinsic parameters.')
 
+        if self.intrinsic_flag:
+            assert model_dict is not None and hyperparam_dict_agn is not None and hyperparam_dict_alt is not None, 'Provide all three of `model_dict`, `param_dict_agn`, `param_dict_alt`.'
+            self.model_dict = model_dict
+            self.hyperparam_dict_agn = hyperparam_dict_agn
+            self.hyperparam_dict_alt = hyperparam_dict_alt
+
+            self.agn_models, self.alt_models = self._get_models()
+
+            print('\nGenerating true GW intrinsic parameter values...')
+            self.make_true_intrinsic_parameter_values()  # Adds true values to self.truths
+            print('Done.')
+        else:
+            print('\nNot generating extrinsic parameters.')
+
+        print(f'Confirming: {len(self.truths)} GWs have been sampled')
+
+        print('Writing truths to hdf5...')
+        self.write_truth_to_hdf5()
+
+
+    # TODO: rework for new mock catalog class
+    # @classmethod
+    # def without_skymaps(
+    #                 cls,
+    #                 n_events: int,
+    #                 f_agn: float,
+    #                 zdraw: float,
+    #                 model_dict: dict,
+    #                 hyperparam_dict_agn: dict,
+    #                 hyperparam_dict_alt: dict,
+    #                 n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
+    #                 cosmology = DEFAULT_COSMOLOGY,
+    #                 outdir: str=DEFAULT_POSTERIOR_OUTDIR,
+    #                 ncpu: int=DEFAULT_N_CPU
+    #             ):
+        
+    #     ''' Make MockEvent instances with this method if you do not want any skymaps. '''
+
+    #     # TODO: make `low` and `high` arguments in class methods and skymap/events classes
+
+    #     # Empty catalog instance, since the max GW distance (zdraw) is still necessary: the measurement error depends on this
+    #     Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
+
+    #     obj = cls(
+    #             n_events=n_events,
+    #             f_agn=f_agn,
+    #             catalog=Catalog,
+    #             catalog_path=None,
+    #             use_skymaps=False,
+    #             model_dict=model_dict,
+    #             hyperparam_dict_agn=hyperparam_dict_agn,
+    #             hyperparam_dict_alt=hyperparam_dict_alt,
+    #             n_posterior_samples=n_posterior_samples,
+    #             cosmology=cosmology,
+    #             outdir=outdir,
+    #             ncpu=ncpu
+    #         )
+    #     return obj
     
-    @classmethod
-    def without_skymaps(
-                    cls,
-                    n_events: int,
-                    f_agn: float,
-                    zdraw: float,
-                    model_dict: dict,
-                    hyperparam_dict_agn: dict,
-                    hyperparam_dict_alt: dict,
-                    n_posterior_samples: int = int(5e4),
-                    cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065),
-                    outdir: str=os.path.join(sys.path[0], "output/mock_gw_data"),
-                    ncpu: int=4
-                ):
+
+    # @classmethod
+    # def with_skymaps_without_agn(
+    #                             cls,
+    #                             n_events: int,
+    #                             zdraw: float,
+    #                             model_dict: dict = None,
+    #                             hyperparam_dict_agn: dict = None,
+    #                             hyperparam_dict_alt: dict = None,
+    #                             n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
+    #                             cosmology = DEFAULT_COSMOLOGY,
+    #                             outdir: str=DEFAULT_POSTERIOR_OUTDIR,
+    #                             ncpu: int=DEFAULT_N_CPU
+    #                         ):
         
-        ''' Make MockEvent instances with this method if you do not want any skymaps. '''
+    #     ''' Let's you generate f_agn = 0 dataset without specifying an AGN catalog in the case you still want to use skymaps. '''
 
-        # TODO: make `low` and `high` arguments in class methods and skymap/events classes
-
-        # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
-        Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
-
-        obj = cls(
-                n_events=n_events,
-                f_agn=f_agn,
-                catalog=Catalog,
-                catalog_path=None,
-                use_skymaps=False,
-                model_dict=model_dict,
-                hyperparam_dict_agn=hyperparam_dict_agn,
-                hyperparam_dict_alt=hyperparam_dict_alt,
-                n_posterior_samples=n_posterior_samples,
-                cosmology=cosmology,
-                outdir=outdir,
-                ncpu=ncpu
-            )
-        return obj
-    
-
-    @classmethod
-    def with_skymaps_without_agn(
-                                cls,
-                                n_events: int,
-                                zdraw: float,
-                                model_dict: dict = None,
-                                hyperparam_dict_agn: dict = None,
-                                hyperparam_dict_alt: dict = None,
-                                n_posterior_samples: int = int(5e4),
-                                cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065),
-                                outdir: str=os.path.join(sys.path[0], "output/mock_gw_data"),
-                                ncpu: int=4
-                            ):
+    #     # TODO: make `low` and `high` arguments in class methods and skymap/events classes
         
-        ''' Let's you generate f_agn = 0 dataset without specifying an AGN catalog in the case you still want to use skymaps. '''
+    #     # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
+    #     Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
 
-        # TODO: make `low` and `high` arguments in class methods and skymap/events classes
-        
-        # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
-        Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
-
-        obj = cls(
-                n_events=n_events,
-                f_agn=0.,
-                catalog=Catalog,
-                catalog_path=None,
-                use_skymaps=True,
-                model_dict=model_dict,
-                hyperparam_dict_agn=hyperparam_dict_agn,
-                hyperparam_dict_alt=hyperparam_dict_alt,
-                n_posterior_samples=n_posterior_samples,
-                cosmology=cosmology,
-                outdir=outdir,
-                ncpu=ncpu
-            )
-        return obj
+    #     obj = cls(
+    #             n_events=n_events,
+    #             f_agn=0.,
+    #             catalog=Catalog,
+    #             catalog_path=None,
+    #             use_skymaps=True,
+    #             model_dict=model_dict,
+    #             hyperparam_dict_agn=hyperparam_dict_agn,
+    #             hyperparam_dict_alt=hyperparam_dict_alt,
+    #             n_posterior_samples=n_posterior_samples,
+    #             cosmology=cosmology,
+    #             outdir=outdir,
+    #             ncpu=ncpu
+    #         )
+    #     return obj
     
 
     def make_posteriors(self):
-        
         ''' Measures event parameters from their true values. True values stay the same for subsequent calls. '''
 
-        if self.skymaps_flag:
-            print('\nGenerating 3D position posteriors...')
-            self.make_3D_location_posteriors(low=self.sky_area_low, high=self.sky_area_high)
+        if self.extrinsic_flag:
+            print('\nGenerating extrinsic parameter posteriors...')
+            self._measure_extrinsic_parameters()
             print('Done.')
 
         if self.model_dict is not None:
             print('\nGenerating intrinsic parameter posteriors...')
-            self._measure_events()
+            self._measure_intrinsic_parameters()
             print('Done.')
     
 
-    def inject_events(self):  # From provided population priors
+    def make_true_intrinsic_parameter_values(self):  # From provided population priors
 
         '''
         Method for adding the true values of intrinsic event parameters to self.truths.
@@ -202,17 +225,18 @@ class MockEvent(MockSkymap):
         independent of distance or AGN luminosity.
         '''
 
-        # If skymaps have been made, there exists a column ['from_agn'], which needs to be paired with the proper intrinsic events, 
+        # If 3D pos have been made, there exists a column ['from_agn'], which needs to be paired with the proper intrinsic events, 
         # and ['redshift'], which is needed for the measurement errors. TODO: rethink this, because it could cause biases...
-        if not self.skymaps_flag:
-            arr = np.zeros(self.n_agn_events + self.n_alt_events, dtype=bool)
-            arr[:self.n_agn_events] = True
-            self.truths['from_agn'] = arr
+        if not self.extrinsic_flag:
+            sys.exit('TODO Implement stuff here')
+            # arr = np.zeros(self.n_agn_events + self.n_alt_events, dtype=bool)
+            # arr[:self.n_agn_events] = True
+            # self.truths['from_agn'] = arr
 
-            print('No sky locations used. Sampling GW redshifts according to uniform-in-comoving-volume distibution.')
-            r, _, _ = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.zdraw).value, n_samps=self.n_events)
-            self.truths['rcom'] = r
-            self.truths['redshift'] = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
+            # print('No sky locations used. Sampling GW redshifts according to uniform-in-comoving-volume distibution.')
+            # r, _, _ = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.zdraw).value, n_samps=self.n_events)
+            # self.truths['rcom'] = r
+            # self.truths['redshift'] = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
         
         for Model in self.agn_models:
             self._update_hyperparams(Model, self.hyperparam_dict_agn)
@@ -229,9 +253,145 @@ class MockEvent(MockSkymap):
             for j, true_values_single_param in enumerate(true_values_all_params):
                 key = Model.param_label[j]
                 self.truths.loc[~self.truths['from_agn'], key] = true_values_single_param
+
+
+    def make_true_extrinsic_parameter_values(self) -> None:
+        # AGN origin - hosts sampled from AGN catalog
+        host_idx = self._select_agn_hosts()
+        self.truths['ra'] = self.catalog.loc[host_idx, 'ra_true']
+        self.truths['dec'] = self.catalog.loc[host_idx, 'dec_true']
+        self.truths['comoving_distance'] = self.catalog.loc[host_idx, 'comoving_distance_true']
+        self.truths['luminosity_distance'] = self.catalog.loc[host_idx, 'luminosity_distance_true']
+        self.truths['redshift'] = self.catalog.loc[host_idx, 'redshift_true']
+        self.truths['from_agn'] = np.ones(self.n_agn_events, dtype=bool)
+        self.truths = self.truths.reset_index(drop=True)  # Remove random ordering of indeces caused by sampling of the catalog
+
+        if self.n_alt_events != 0:
+            # ALT origin - hosts uniform in comoving volume
+            temp_alt_df = pd.DataFrame()
+            r, theta, phi = self._sample_alt_coords()
+            z = fast_z_at_value(self.cosmo.comoving_distance, r * u.Mpc)
+            temp_alt_df['ra'] = phi
+            temp_alt_df['dec'] = 0.5*np.pi - theta
+            temp_alt_df['comoving_distance'] = r
+            temp_alt_df['luminosity_distance'] = self.cosmo.luminosity_distance(z).value
+            temp_alt_df['redshift'] = z
+            temp_alt_df['from_agn'] = np.zeros(self.n_alt_events, dtype=bool)
+            self.truths = pd.concat([self.truths, temp_alt_df], ignore_index=True)  # TODO: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+            del temp_alt_df
+
+
+    def write_truth_to_hdf5(self):
+        for index in tqdm(range(self.n_events)):
+            try:
+                filename = os.path.join(self.outdir, f"gw_{index:05d}.h5")
+                with h5py.File(filename, "a") as f:
+                    mock_group = f.require_group("mock")  # Ensure 'mock' group exists
+                    truth_group = mock_group.require_group("truths")  # Ensure 'truths' exists
+                    for colname, values in self.truths.items():
+                        truth_group.create_dataset(colname, data=values.iloc[index], dtype="f8")
+
+            except Exception as e:
+                sys.exit(f"Error in event {index}: {e}")
+
+
+    def _measure_extrinsic_parameters(self) -> None:
+        ''' Sky position posteriors are modeled as a 2D VonMises-Fisher distribution '''
+
+        # Get cartesian components of directional unit vector to GW origin
+        x_true, y_true, z_true = spherical2cartesian(1, 0.5 * np.pi - self.truths['dec'], self.truths['ra'])
+        
+        # Compute VonMises-Fisher concentration parameters
+        sky_areas_68p = self._sample_68p_sky_area()
+        kappas = self._kappa_from_sky_area(sky_areas_68p)
+
+        dtrue = self.truths['luminosity_distance'].to_numpy()
+        dobs = dtrue * (1. + self.lumdist_relerr * np.random.normal(size=self.n_events))  # Observed distances
+
+
+        with ThreadPoolExecutor(max_workers=min(cpu_count(), self.ncpu)) as executor:
+            future_to_index = {executor.submit(
+                                            self._process_single_event_extrinsic,
+                                            i, 
+                                            x_true[i], 
+                                            y_true[i], 
+                                            z_true[i], 
+                                            kappas[i], 
+                                            dobs[i], 
+                                            self.lumdist_relerr
+                                        ): i for i in range(self.n_events)
+                                        }
+            
+            for future in tqdm(as_completed(future_to_index), total=self.n_events):
+                try:
+                    _ = future.result(timeout=60)
+                except Exception as e:
+                    print(f"Error processing event {future_to_index[future]}: {e}")
+
+
+    def _process_single_event_extrinsic(self, index, x, y, z, kappa, dobs, sigma) -> None:
+        """Worker function for threading. Generates posterior samples and writes to HDF5."""
+
+        ###### Sky locations ######
+        mu_true = np.array([x, y, z])  # True center
+        skymap_center = vonmises_fisher.rvs(mu_true, kappa, size=1)  # Observed center
+
+        # Generate posterior samples
+        samples = vonmises_fisher.rvs(skymap_center[0], kappa, size=self.n_posterior_samples)
+        _, theta_samples, phi_samples = cartesian2spherical(samples[:, 0], samples[:, 1], samples[:, 2])
+
+        dec_samples = 0.5 * np.pi - theta_samples
+
+        ##### Distances #####
+        # Importance resampling of distances
+        dtpostsamps = dobs / (1 + sigma * np.random.normal(size=2 * self.n_posterior_samples))
+        weights = dtpostsamps / np.sum(dtpostsamps)  # Importance weights proportional to d
+        lumdist_samples = np.random.choice(dtpostsamps, size=self.n_posterior_samples, p=weights)
+
+        # Redshift and comoving distance calculations
+        redshift_samples = fast_z_at_value(self.cosmo.luminosity_distance, lumdist_samples * u.Mpc)
+        comdist_samples = self.cosmo.comoving_distance(redshift_samples).value
+
+        # Write samples to hdf5
+        samples_table = Table([phi_samples, dec_samples, lumdist_samples, comdist_samples, redshift_samples], 
+                                    names=('ra', 'dec', 'luminosity_distance', 'comoving_distance', 'redshift'))
+        filename = os.path.join(self.outdir, f"gw_{index:05d}.h5")
+
+        with h5py.File(filename, "a") as f:
+            mock_group = f.require_group("mock")  # Takes place of approximant in real GW data
+            mock_group.create_dataset('posterior_samples', data=samples_table)
+
+        return None
+
+
+    def _select_agn_hosts(self):
+        host_idx = np.random.choice(np.arange(len(self.catalog)), self.n_agn_events)
+        return host_idx
     
 
-    def _measure_events(self):
+    def _sample_alt_coords(self):
+        r, theta, phi = uniform_shell_sampler(0, self.cosmo.comoving_distance(self.zdraw).value, n_samps=self.n_alt_events)
+        return r, theta, phi
+    
+
+    def _sample_68p_sky_area(self):
+        ''' 68% CL sky localization area uniformly sampled between low and high in deg^2 '''
+        sky_area = np.random.uniform(low=self.sky_area_low, high=self.sky_area_high, size=self.n_events) * (np.pi / 180)**2  # Deg^2 to sr
+        return sky_area
+    
+
+
+
+
+
+
+
+
+
+
+    
+
+    def _measure_intrinsic_parameters(self):
         '''
         TODO: rethink this, because it could cause biases...
 
@@ -322,6 +482,13 @@ class MockEvent(MockSkymap):
                     'mminns':hyperparam_dict['mminns']['value'], 'mmaxns':hyperparam_dict['mmaxns']['value']
                 }
         Model.update_parameters(hyperparams)
+
+
+    @staticmethod
+    def _kappa_from_sky_area(sky_area):
+        ''' Factor 1.14 empirically seems to work for 68% CL - only approximate needed anyway '''
+        kappa = 2 * np.pi * 1.14 / sky_area
+        return kappa
 
 
 if __name__ == '__main__':

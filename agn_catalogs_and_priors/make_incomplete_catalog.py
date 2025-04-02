@@ -42,8 +42,11 @@ def make_new_catalog(catalog_path, nside, inccat_path, norm_map_path, c_map_path
             pix = ipix_from_ra_dec(nside, old_catalog['complete_catalog']['ra'][()], old_catalog['complete_catalog']['dec'][()], nest=True)
             completeness = c_omega(pix, nside)  # Completenesses in all pixels
             detected = completeness[pix] > np.random.uniform(low=0, high=1, size=len(pix))
+            # hp.fitsfunc.write_map(c_map_path, completeness, nest=True, overwrite=True)  # Save completeness map for use in likelihood
 
-            hp.fitsfunc.write_map(c_map_path, completeness, nest=True, overwrite=True)  # Save completeness map for use in likelihood
+
+            # detected = 0.5 > np.random.uniform(low=0, high=1, size=len(pix))  # Give each AGN a 50% chance of being detected
+
             
             new_catalog['detected'] = detected
             for col in INC_CAT_COLS:
@@ -61,17 +64,31 @@ def make_new_catalog(catalog_path, nside, inccat_path, norm_map_path, c_map_path
         hp.fitsfunc.write_map(norm_map_path, healpix_map, nest=True, overwrite=True)
 
 
+        below_zdraw = new_catalog['complete_catalog']['redshift_true'][()] < 2
+        below_zdraw_pix = hp.ang2pix(nside, np.pi * 0.5 - new_catalog['complete_catalog']['dec'][below_zdraw], new_catalog['complete_catalog']['ra'][below_zdraw], nest=True)
+        below_zdraw_map = np.zeros(npix)
+        np.add.at(below_zdraw_map, below_zdraw_pix, 1)
+        
+        below_zdraw_and_detected = below_zdraw & new_catalog['detected']
+        detected_below_zdraw_pix = hp.ang2pix(nside, np.pi * 0.5 - new_catalog['complete_catalog']['dec'][below_zdraw_and_detected], new_catalog['complete_catalog']['ra'][below_zdraw_and_detected], nest=True)
+        detected_and_below_zdraw_map = np.zeros(npix)
+        np.add.at(detected_and_below_zdraw_map, detected_below_zdraw_pix, 1)
+
+        cmap = np.where(below_zdraw_map == 0., 1, detected_and_below_zdraw_map / below_zdraw_map)  # If the true pixel is empty, the pixel is complete.
+        hp.fitsfunc.write_map(c_map_path, cmap, nest=True, overwrite=True)
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
-    nside = 32
+    nside = 1
     pix = np.arange(hp.nside2npix(nside))
     c = c_omega(pix, nside)
 
     cat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01.hdf5'
-    inccat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v17.hdf5'
-    norm_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v17.fits'
-    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v17.fits'
+    inccat_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v24.hdf5'
+    norm_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v24.fits'
+    c_map_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/completeness_NAGN_100000_ZMAX_3_SIGMA_0.01_v24.fits'
     make_new_catalog(cat_path, nside, inccat_path, norm_map_path, c_map_path)
 
     # plt.figure()

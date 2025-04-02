@@ -76,7 +76,7 @@ class MockCatalog:
                 setattr(obj, attr, value)
 
             # Get cosmology
-            print('WARNING: Assuming FlatLambdaCDM cosmology!')  # TODO: handle cosmology better than this crap
+            print('CATALOG WARNING: Assuming FlatLambdaCDM cosmology for loaded catalog!')  # TODO: handle cosmology better than this crap
             cosmo_group = f["cosmology"]
             H0 = cosmo_group.attrs['H0']
             Om0 = cosmo_group.attrs['Om0']
