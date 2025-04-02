@@ -7,10 +7,11 @@ import astropy.units as u
 from darksirenpop.utils import uniform_shell_sampler, fast_z_at_value, make_nice_plots
 import h5py
 import healpy as hp
+from darksirenpop.default_arguments import *
 
 
-COLUMNS = ['comoving_distance_true', 'luminosity_distance_true', 'ra_true', 'dec_true', 'redshift_true', 
-           'comoving_distance', 'luminosity_distance', 'ra', 'dec', 'redshift', 'redshift_error', 'detected']
+CATALOG_COLUMNS = ['comoving_distance_true', 'luminosity_distance_true', 'ra_true', 'dec_true', 'redshift_true', 
+                    'comoving_distance', 'luminosity_distance', 'ra', 'dec', 'redshift', 'redshift_error', 'detected']
 
 
 class MockCatalog:
@@ -19,10 +20,10 @@ class MockCatalog:
         self,
         n_agn: int,
         max_redshift: float,
-        redshift_error: float=0.05,
-        completeness: float = 1.,
+        redshift_error: float,
+        completeness: float,
         uniform: bool=True,  # In case we ever want to do something non-uniform
-        cosmology = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+        cosmology=DEFAULT_COSMOLOGY
     ):
         """
         max_redshift: redshift of outer boundary of simulated universe
@@ -41,7 +42,7 @@ class MockCatalog:
 
         self.max_rcom = self.cosmo.comoving_distance(self.max_redshift).value  # In Mpc
 
-        self.complete_catalog = pd.DataFrame(columns=COLUMNS)
+        self.complete_catalog = pd.DataFrame(columns=CATALOG_COLUMNS)
         if self.n_agn != 0:
             self._make_complete_catalog()
         else:
@@ -66,8 +67,8 @@ class MockCatalog:
             obj = cls.__new__(cls)
 
             # Get catalogs
-            obj.complete_catalog = pd.DataFrame(columns=COLUMNS)
-            for col in COLUMNS:
+            obj.complete_catalog = pd.DataFrame(columns=CATALOG_COLUMNS)
+            for col in CATALOG_COLUMNS:
                 obj.complete_catalog[col] = f['complete_catalog'][col][()]
             obj.incomplete_catalog = obj.complete_catalog.loc[obj.complete_catalog['detected'] == True]
 
@@ -99,13 +100,13 @@ class MockCatalog:
         incat = self.incomplete_catalog
         with h5py.File(output_path, "w") as f:
 
-            for col in COLUMNS:
+            for col in CATALOG_COLUMNS:
                 data = incat[col].to_numpy()
                 f.create_dataset(col, data=data)
 
             # Save the complete catalog 1 layer deeper such that the rest of the code defaults to the incomplete catalog
             complete_cat_group = f.create_group("complete_catalog")
-            for col in COLUMNS:
+            for col in CATALOG_COLUMNS:
                 data = cat[col].to_numpy()
                 complete_cat_group.create_dataset(col, data=data)
 

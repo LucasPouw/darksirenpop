@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import sys, os
 import astropy.units as u
-from utils import fast_z_at_value, make_nice_plots, check_equal, uniform_shell_sampler, spherical2cartesian, cartesian2spherical
+from utils import fast_z_at_value, check_equal, uniform_shell_sampler, spherical2cartesian, cartesian2spherical
 from agn_catalogs_and_priors.mock_catalog_maker import MockCatalog
 from priors import *
 import json
@@ -23,32 +23,29 @@ class MockEvent:
                 n_events: int,
                 f_agn: float,
                 zdraw: float,
-                use_extrinsic: bool = True,
-                use_intrinsic: bool = True,
-                sky_area_low: float=DEFAULT_SKY_AREA_LOW,
-                sky_area_high: float=DEFAULT_SKY_AREA_HIGH,
-                lumdist_relerr: float=DEFAULT_LUMDIST_RELERR,
-                catalog: MockCatalog = None,    # Either a MockCatalog object you just made
-                catalog_path: str = None,       # Or a pre-existing one that is stored in hdf5 format
-                model_dict: dict = None,
-                hyperparam_dict_agn: dict = None,
-                hyperparam_dict_alt: dict = None,
-                n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
-                cosmology = DEFAULT_COSMOLOGY,
+                use_extrinsic: bool=False,
+                use_intrinsic: bool=False,
+                sky_area_low: float=None,
+                sky_area_high: float=None,
+                lumdist_relerr: float=None,
+                mass_relerr: float=None,
+                catalog: MockCatalog=None,    # Either a MockCatalog object you just made
+                catalog_path: str=None,       # Or a pre-existing one that is stored in hdf5 format
+                model_dict: dict=None,
+                hyperparam_dict_agn_path: str=None,
+                hyperparam_dict_alt_path: str=None,
+                n_posterior_samples: int=DEFAULT_N_POSTERIOR_SAMPLES,
+                cosmology=DEFAULT_COSMOLOGY,
                 outdir: str=DEFAULT_POSTERIOR_OUTDIR,
                 ncpu: int=DEFAULT_N_CPU
             ):
         
         """
-        OUTDATED DOCSTRING
-        
-        If you don't want skymaps, call MockEvent.without_skymaps()
-        If you want skymaps while f_agn = 0, call MockEvent.with_skymaps_without_agn()
-        In both these cases, provide zdraw: the maximum redshift to generate GWs from
-
         model_dict: dict            Contains all population prior models as strings in the format {`agn`: [`agn_model1`, ..., `agn_modelN`], `alt`: [...]},
         catalog: MockCatalog        
         """
+
+        assert use_extrinsic or use_intrinsic, 'Set at least one of `use_extrinsic` and `use_intrinsic` to True.'
         
         if os.path.isdir(outdir):
             if len(os.listdir(outdir)) != 0:
@@ -105,12 +102,15 @@ class MockEvent:
             print('\nNot generating extrinsic parameters.')
 
         if self.intrinsic_flag:
-            assert model_dict is not None and hyperparam_dict_agn is not None and hyperparam_dict_alt is not None, 'Provide all three of `model_dict`, `param_dict_agn`, `param_dict_alt`.'
+            assert model_dict is not None and hyperparam_dict_agn_path is not None and hyperparam_dict_alt_path is not None, 'Provide all three of `model_dict`, `hyperparam_dict_agn_path`, `hyperparam_dict_alt_path`.'
             self.model_dict = model_dict
-            self.hyperparam_dict_agn = hyperparam_dict_agn
-            self.hyperparam_dict_alt = hyperparam_dict_alt
+            with open(hyperparam_dict_agn_path, "r") as file:
+                self.hyperparam_dict_agn = json.load(file)
+            with open(hyperparam_dict_alt_path, "r") as file:
+                self.hyperparam_dict_alt = json.load(file)
 
             self.agn_models, self.alt_models = self._get_models()
+            self.mass_relerr = mass_relerr
 
             print('\nGenerating true GW intrinsic parameter values...')
             self.make_true_intrinsic_parameter_values()  # Adds true values to self.truths
@@ -122,84 +122,6 @@ class MockEvent:
 
         print('Writing truths to hdf5...')
         self.write_truth_to_hdf5()
-
-
-    # TODO: rework for new mock catalog class
-    # @classmethod
-    # def without_skymaps(
-    #                 cls,
-    #                 n_events: int,
-    #                 f_agn: float,
-    #                 zdraw: float,
-    #                 model_dict: dict,
-    #                 hyperparam_dict_agn: dict,
-    #                 hyperparam_dict_alt: dict,
-    #                 n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
-    #                 cosmology = DEFAULT_COSMOLOGY,
-    #                 outdir: str=DEFAULT_POSTERIOR_OUTDIR,
-    #                 ncpu: int=DEFAULT_N_CPU
-    #             ):
-        
-    #     ''' Make MockEvent instances with this method if you do not want any skymaps. '''
-
-    #     # TODO: make `low` and `high` arguments in class methods and skymap/events classes
-
-    #     # Empty catalog instance, since the max GW distance (zdraw) is still necessary: the measurement error depends on this
-    #     Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
-
-    #     obj = cls(
-    #             n_events=n_events,
-    #             f_agn=f_agn,
-    #             catalog=Catalog,
-    #             catalog_path=None,
-    #             use_skymaps=False,
-    #             model_dict=model_dict,
-    #             hyperparam_dict_agn=hyperparam_dict_agn,
-    #             hyperparam_dict_alt=hyperparam_dict_alt,
-    #             n_posterior_samples=n_posterior_samples,
-    #             cosmology=cosmology,
-    #             outdir=outdir,
-    #             ncpu=ncpu
-    #         )
-    #     return obj
-    
-
-    # @classmethod
-    # def with_skymaps_without_agn(
-    #                             cls,
-    #                             n_events: int,
-    #                             zdraw: float,
-    #                             model_dict: dict = None,
-    #                             hyperparam_dict_agn: dict = None,
-    #                             hyperparam_dict_alt: dict = None,
-    #                             n_posterior_samples: int = DEFAULT_N_POSTERIOR_SAMPLES,
-    #                             cosmology = DEFAULT_COSMOLOGY,
-    #                             outdir: str=DEFAULT_POSTERIOR_OUTDIR,
-    #                             ncpu: int=DEFAULT_N_CPU
-    #                         ):
-        
-    #     ''' Let's you generate f_agn = 0 dataset without specifying an AGN catalog in the case you still want to use skymaps. '''
-
-    #     # TODO: make `low` and `high` arguments in class methods and skymap/events classes
-        
-    #     # Empty catalog instance, since the max GW distance (gw_box_radius) is still necessary: the measurement error depends on this
-    #     Catalog = MockCatalog(n_agn=0, max_redshift=zdraw, gw_box_radius=zdraw)
-
-    #     obj = cls(
-    #             n_events=n_events,
-    #             f_agn=0.,
-    #             catalog=Catalog,
-    #             catalog_path=None,
-    #             use_skymaps=True,
-    #             model_dict=model_dict,
-    #             hyperparam_dict_agn=hyperparam_dict_agn,
-    #             hyperparam_dict_alt=hyperparam_dict_alt,
-    #             n_posterior_samples=n_posterior_samples,
-    #             cosmology=cosmology,
-    #             outdir=outdir,
-    #             ncpu=ncpu
-    #         )
-    #     return obj
     
 
     def make_posteriors(self):
@@ -317,8 +239,7 @@ class MockEvent:
                                             y_true[i], 
                                             z_true[i], 
                                             kappas[i], 
-                                            dobs[i], 
-                                            self.lumdist_relerr
+                                            dobs[i]
                                         ): i for i in range(self.n_events)
                                         }
             
@@ -329,7 +250,7 @@ class MockEvent:
                     print(f"Error processing event {future_to_index[future]}: {e}")
 
 
-    def _process_single_event_extrinsic(self, index, x, y, z, kappa, dobs, sigma) -> None:
+    def _process_single_event_extrinsic(self, index, x, y, z, kappa, dobs) -> None:
         """Worker function for threading. Generates posterior samples and writes to HDF5."""
 
         ###### Sky locations ######
@@ -344,7 +265,7 @@ class MockEvent:
 
         ##### Distances #####
         # Importance resampling of distances
-        dtpostsamps = dobs / (1 + sigma * np.random.normal(size=2 * self.n_posterior_samples))
+        dtpostsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=2 * self.n_posterior_samples))
         weights = dtpostsamps / np.sum(dtpostsamps)  # Importance weights proportional to d
         lumdist_samples = np.random.choice(dtpostsamps, size=self.n_posterior_samples, p=weights)
 
@@ -361,7 +282,55 @@ class MockEvent:
             mock_group = f.require_group("mock")  # Takes place of approximant in real GW data
             mock_group.create_dataset('posterior_samples', data=samples_table)
 
-        return None
+        return
+    
+
+    def _measure_intrinsic_parameters(self):
+        '''
+        Currently only implemented mass_1_source
+        '''
+
+        mtrue = self.truths['mass_1_source'].to_numpy()
+        mobs = mtrue * (1. + self.mass_relerr * np.random.normal(size=self.n_events))  # Observed masses
+
+        with ThreadPoolExecutor(max_workers=min(cpu_count(), self.ncpu)) as executor:
+            future_to_index = {executor.submit(
+                                            self._process_single_event_intrinsic,
+                                            i, 
+                                            mobs[i]
+                                        ): i for i in range(self.n_events)
+                                        }
+            
+            for future in tqdm(as_completed(future_to_index), total=self.n_events):
+                try:
+                    _ = future.result(timeout=60)
+                except Exception as e:
+                    print(f"Error processing event {future_to_index[future]}: {e}")
+
+
+    def _process_single_event_intrinsic(self, index, mobs):
+        ##### Primary mass #####
+        # Importance resampling of masses
+        mass_1_postsamps = mobs / (1 + self.mass_relerr * np.random.normal(size=2 * self.n_posterior_samples))
+        weights = mass_1_postsamps / np.sum(mass_1_postsamps)  # Importance weights proportional to m
+        mass_1_samples = np.random.choice(mass_1_postsamps, size=self.n_posterior_samples, p=weights)
+
+        # Write samples to hdf5
+        intrinsic_samples = Table([mass_1_samples], names=('mass_1_source'))
+        filename = os.path.join(self.outdir, f"gw_{index:05d}.h5")
+
+        with h5py.File(filename, "a") as f:
+            mock_group = f.require_group("mock")  # Takes place of approximant in real GW data
+
+            if 'posterior_samples' in mock_group:
+                posterior_table = Table.read(mock_group['posterior_samples'])
+                posterior_table['mass_1_source'] = intrinsic_samples['mass_1_source']
+                
+                # Overwrite dataset with updated table
+                del mock_group['posterior_samples']  # Remove old dataset
+                mock_group.create_dataset('posterior_samples', data=posterior_table)
+            else:
+                mock_group.create_dataset('posterior_samples', data=intrinsic_samples)
 
 
     def _select_agn_hosts(self):
@@ -378,49 +347,6 @@ class MockEvent:
         ''' 68% CL sky localization area uniformly sampled between low and high in deg^2 '''
         sky_area = np.random.uniform(low=self.sky_area_low, high=self.sky_area_high, size=self.n_events) * (np.pi / 180)**2  # Deg^2 to sr
         return sky_area
-    
-
-
-
-
-
-
-
-
-
-
-    
-
-    def _measure_intrinsic_parameters(self):
-        '''
-        TODO: rethink this, because it could cause biases...
-
-        We assume our measurements to be Gaussian. The width should be dependent on redshift. 
-        Either sample and reorder errors (done for skymaps) or use closed formula (currently done here for intrinsics).
-        
-        TODO: make truncnorm posteriors and make the measurement_errors dict an argument of the class -> [min_value, max_value, min_error, max_error]
-        OR DO WE ALREADY HAVE MMIN AND MMAX FROM HYPERPARAM DICT? POG: mminbh, mmaxbh
-        however, the true values of mminbh and mmaxbh may be unknown, so the posteriors would extend past these...bruhhh
-        '''
-
-        # param: [min_error, max_error], such that total error = min_error * (1 + z), capped at max_error
-        measurement_errors={'mass_1_source': [1, 15],
-                            'mass_2_source': [1, 20]}
-        n_intrinsic_params = len(self.intrinsic_param_keys)
-        
-        # Unpack measurement_errors dictionary
-        min_errs, max_errs = np.zeros(n_intrinsic_params), np.zeros(n_intrinsic_params)
-        for i, param in enumerate(self.intrinsic_param_keys):  # All intrinsic parameters previously found must have a value in measurement_errors dict
-            min_errs[i], max_errs[i] = measurement_errors[param]
-
-        errors = min_errs[np.newaxis, :] * (1 + self.truths['redshift'].to_numpy()[:, np.newaxis])
-        errors = np.where(errors > max_errs, max_errs, errors)
-        means = np.random.normal(loc=self.truths[self.intrinsic_param_keys].to_numpy(), scale=errors, size=(self.n_events, n_intrinsic_params))  # Posterior mean should not coincide with true value
-        posteriors = np.random.normal(loc=means[:, :, np.newaxis], scale=errors[:, :, np.newaxis], size=(self.n_events, n_intrinsic_params, self.n_posterior_samples))
-
-        # Pass posteriors to DataFrame
-        for i, param in enumerate(self.intrinsic_param_keys):
-            self.posteriors[param] = list(posteriors[:, i, :])
 
 
     def _get_models(self):
@@ -492,154 +418,4 @@ class MockEvent:
 
 
 if __name__ == '__main__':
-
-    make_nice_plots()
-
-    # N_TOT = 100
-    ZDRAW = 2
-    N_EVENTS = int(100)
-    F_AGN = 0.5
-
-    ##### FAGN = 0 EVENTS WITH SKYMAPS #####
-    # events = MockEvent.with_skymaps_without_agn(n_events=N_EVENTS,
-    #                                             zdraw=GW_BOX_SIZE)
-    
-    # events.make_posteriors()
-    # print(events.posteriors)
-
-    ########################################  
-
-    # The model dictionary should contain choices of implemented models. These models have parameters for which we pass another dictionary
-    # TODO: think about what happens when we want to do the chi_eff vs q correlation here (mass ratios are used in the mass models already)
-    model_dict = {
-                'agn': ['PrimaryMass-gaussian'], 
-                'alt': ['PrimaryMass-gaussian']
-            }
-    
-    # These dicts should contain a selection of allowed population parameters: only parameters that are implemented in models are allowed
-    try:
-        with open("hyperparam_agn.json", "r") as file:
-            hyperparam_dict_agn = json.load(file)
-        with open("hyperparam_alt.json", "r") as file:
-            hyperparam_dict_alt = json.load(file)
-    except FileNotFoundError:
-        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/hyperparam_agn.json", "r") as file:
-            hyperparam_dict_agn = json.load(file)
-        with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/inputs/hyperparam_alt.json", "r") as file:
-            hyperparam_dict_alt = json.load(file)
-
-
-    ##### EVENTS WITH EMPTY CATALOG #####
-    # events = MockEvent.without_skymaps(n_events=N_EVENTS,
-    #                                    f_agn=F_AGN,
-    #                                    zdraw=GW_BOX_SIZE,
-    #                                    model_dict=model_dict,
-    #                                    hyperparam_dict_agn=hyperparam_dict_agn,
-    #                                    hyperparam_dict_alt=hyperparam_dict_alt,
-    #                                    )
-    # events.make_posteriors()
-    # print(events.posteriors)
-    #####################################
-    
-
-    # Catalog = MockCatalog(n_agn=N_TOT,
-    #                         max_redshift=GRID_SIZE,
-    #                         gw_box_radius=GW_BOX_SIZE,
-    #                         completeness=1)
-
-    Catalog = MockCatalog.from_file(file_path='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN750000_ZMAX_3.hdf5')
-    GWEvents = MockEvent(
-                    n_events=N_EVENTS,
-                    f_agn=F_AGN,
-                    zdraw=ZDRAW,
-                    catalog=Catalog,
-                    ncpu=1,
-                    n_posterior_samples=int(5e3)
-                )
-
-    # GWEvents = MockEvent(
-    #                     model_dict=model_dict,
-    #                     n_events=N_EVENTS,
-    #                     f_agn=F_AGN,
-    #                     use_skymaps=True,
-    #                     hyperparam_dict_agn=hyperparam_dict_agn,
-    #                     hyperparam_dict_alt=hyperparam_dict_alt,
-    #                     catalog=Catalog, 
-    #                 )
-
-    GWEvents.make_posteriors()
-    # print(GWEvents.posteriors)
-
-    # GWEvents.write_3D_location_samples_to_hdf5(outdir='./output/mocksamples/without_lumdist')
-
-    ############# PLOTTING POSITION POSTERIORS #############
-
-    # for i in range(10):
-    #     ra_post = np.array(GWEvents.posteriors['ra'].iloc[i])
-    #     dec_post = np.array(GWEvents.posteriors['dec'].iloc[i])
-    #     z_post = np.array(GWEvents.posteriors['redshift'].iloc[i])
-
-    #     ra_truth = GWEvents.truths['ra'].iloc[i]
-    #     dec_truth = GWEvents.truths['dec'].iloc[i]
-    #     z_truth = GWEvents.truths['redshift'].iloc[i]
-
-    #     fig, ax = plt.subplots(ncols=3, figsize=(24, 6))
-    #     ax[0].scatter(ra_post, dec_post, color='black', marker='.', alpha=0.4)
-    #     ax[0].scatter(ra_truth, dec_truth, color='red', marker='o', zorder=5)
-    #     ax[0].set_xlabel('RA')
-    #     ax[0].set_ylabel('Dec')
-
-    #     ax[1].scatter(ra_post, z_post, color='black', marker='.', alpha=0.4)
-    #     ax[1].scatter(ra_truth, z_truth, color='red', marker='o', zorder=5)
-    #     ax[1].set_xlabel('RA')
-    #     ax[1].set_ylabel('z')
-
-    #     ax[2].scatter(z_post, dec_post, color='black', marker='.', alpha=0.4)
-    #     ax[2].scatter(z_truth, dec_truth, color='red', marker='o', zorder=5)
-    #     ax[2].set_xlabel('z')
-    #     ax[2].set_ylabel('Dec')
-    #     plt.show()
-
-    ############# INTINSIC PARAMETERS #############
-
-    agn_colors = np.array(['red', 'blue', 'black'])
-    alt_colors = np.array(['coral', 'skyblue', 'grey'])
-
-    agn_mass1 = GWEvents.truths['mass_1_source'].loc[GWEvents.truths['from_agn']]
-    alt_mass1 = GWEvents.truths['mass_1_source'].loc[~GWEvents.truths['from_agn']]
-    # agn_mass2 = GWEvents.truths['mass_2_source'].loc[GWEvents.truths['from_agn']]
-    # alt_mass2 = GWEvents.truths['mass_2_source'].loc[~GWEvents.truths['from_agn']]
-
-    agn_mass1_post = GWEvents.posteriors['mass_1_source'].loc[GWEvents.truths['from_agn']]
-    alt_mass1_post = GWEvents.posteriors['mass_1_source'].loc[~GWEvents.truths['from_agn']]
-    # agn_mass2_post = GWEvents.posteriors['mass_2_source'].loc[GWEvents.truths['from_agn']]
-    # alt_mass2_post = GWEvents.posteriors['mass_2_source'].loc[~GWEvents.truths['from_agn']]
-
-    ### PLOTTING POPULATION PRIORS ###
-
-    # plt.figure(figsize=(8,6))
-    # plt.hist(agn_mass1, density=True, bins=30, histtype='step', color='blue', linewidth=3, label='AGN m1')
-    # plt.hist(alt_mass1, density=True, bins=30, histtype='step', color='red', linewidth=3, label='ALT m1')
-    # plt.hist(agn_mass2, density=True, bins=30, histtype='step', color='skyblue', linewidth=3, label='AGN m2')
-    # plt.hist(alt_mass2, density=True, bins=30, histtype='step', color='coral', linewidth=3, label='ALT m2')
-    # plt.legend()
-    # plt.show()
-
-    ### PLOTTING INTRINSIC PARAM POSTERIORS ###
-
-    # plt.figure(figsize=(8,6))
-    # h, _, _ = plt.hist(agn_mass1_post, density=True, bins=30, histtype='step', color=agn_colors[:GWEvents.n_agn_events], linewidth=3, label='Measured AGN')
-    # h2, _, _, = plt.hist(alt_mass1_post, density=True, bins=30, histtype='step', color=alt_colors[:GWEvents.n_alt_events], linewidth=3, label='Measured ALT')
-    
-    # ymin = 0
-    # ymax = 1.1 * max(max(h.flatten()), max(h2.flatten()))
-    # plt.vlines(agn_mass1, ymin, ymax, color=agn_colors[:GWEvents.n_agn_events], linestyle='dashed', linewidth=3, label='True AGN')
-    # plt.vlines(alt_mass1, ymin, ymax, color=alt_colors[:GWEvents.n_alt_events], linestyle='dashed', linewidth=3, label='True ALT')   
-    # plt.xlabel('log Primary mass')
-    # plt.ylabel('Probability density')
-    # plt.ylim(ymin, ymax)
-    # plt.legend()
-    # plt.show()
-    
-
-#%%
+    pass

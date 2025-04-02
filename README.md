@@ -19,7 +19,7 @@ For example,
 <!-- python3 compute_zprior.py --zmax 3 --nside 32 --catalog_name MOCK --catalog_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v22.hdf5' --maps_path '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/maps/mocknorm_NAGN_100000_ZMAX_3_SIGMA_0.01_incomplete_v22.fits' --min_gals_for_threshold 1 --num_threads 6 --zdraw 2 --zmin 1e-10 --sigma 0.01 -->
 
 ### Generating mock GW data
-Run `mock_event_maker.py`. This will generate `.h5` files with two layers. 
+Run `main.py`. This will generate `.h5` files with two layers. 
 The top layer is the group called `mock`, which is analogous to the approximant group in real GW data.
 This group contains the dataset `posterior_samples`, which is an `astopy.table.Table` object with columns such as `ra`, `dec` and `rlum`.
 
