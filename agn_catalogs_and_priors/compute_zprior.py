@@ -19,7 +19,7 @@ import logging
 from pixelated_catalog import load_catalog_from_path
 from darksirenpop.arguments import create_parser
 from tqdm import tqdm
-from astropy.cosmology import FlatLambdaCDM
+from darksirenpop.default_arguments import *
 from LOS_zprior import get_norm_interp
 
 handler_out = logging.StreamHandler(stream=sys.stdout)
@@ -117,7 +117,7 @@ def main():
     sigma = float(opts.sigma)
 
     # TODO: make this not hard-coded
-    cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+    cosmo = DEFAULT_COSMOLOGY
     zarray = np.logspace(-10, np.log10(zdraw), 12000)
     # zarray = np.linspace(0, zmax, 1000)  
 

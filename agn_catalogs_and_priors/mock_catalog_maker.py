@@ -117,7 +117,7 @@ class MockCatalog:
                 f.attrs[attr] = value
 
             # Save cosmological parameters
-            print('WARNING: Assuming FlatLambdaCDM cosmology!')  # TODO: handle cosmology better than this crap
+            print('WRITING WARNING: Writing to hdf5 assuming FlatLambdaCDM cosmology!')  # TODO: handle cosmology better than this crap
             cosmo_group = f.create_group("cosmology")
             cosmo_group.attrs['H0'] = self.cosmo.H0.value
             cosmo_group.attrs['Om0'] = self.cosmo.Om0
@@ -203,14 +203,16 @@ if __name__ == '__main__':
 
     make_nice_plots()
     
-    N_TOT = 100000
+    N_TOT = int(1e3)
     MAX_REDSHIFT = 3  # Max AGN true redshift
     N_COARSE = 32
-    SIGMA = 0.01
+    SIGMA = 0
+    COMPLETENESS = 1
 
     ShaiHulud = MockCatalog(n_agn=N_TOT, 
                             max_redshift=MAX_REDSHIFT,
-                            redshift_error=SIGMA)  # Shai Hulud is the Maker of the Deep Desert...and also this catalog
+                            redshift_error=SIGMA,
+                            completeness=COMPLETENESS)  # Shai Hulud is the Maker of the Deep Desert...and also this catalog
 
     fname = f'NAGN_{N_TOT}_ZMAX_{MAX_REDSHIFT}_SIGMA_{SIGMA}'
     script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script

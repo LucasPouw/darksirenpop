@@ -1,20 +1,16 @@
 import numpy as np
-from scipy.integrate import simpson
 from scipy.interpolate import interp1d
 import json
-
 from utils import ra_dec_from_ipix, ipix_from_ra_dec, make_pixdict
+from default_arguments import *
 import healpy as hp
 import h5py
 import ast
 from tqdm.auto import tqdm
-
 from scipy.integrate import quad
-from astropy.cosmology import FlatLambdaCDM
 import matplotlib.pyplot as plt
 import time
 import sys
-
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from multiprocessing import cpu_count
 
@@ -22,9 +18,9 @@ from multiprocessing import cpu_count
 ZMIN = 1e-10
 ZDRAW = 2
 ZMAX = ZDRAW
-COSMO = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+COSMO = DEFAULT_COSMOLOGY
 
-print('ALTERNATIVE HYPOTHESIS IS NORMALIZED UP TO Z=', ZMAX)
+print('ALTERNATIVE HYPOTHESIS IS NORMALIZED UP TO Z = ', ZMAX)
 
 def dVdz_unnorm(z, cosmo):
     '''Assuming flat LCDM'''
@@ -39,7 +35,6 @@ NORM = quad(func, ZMIN, ZMAX)[0]
 
 def dVdz_prior(z, norm=NORM, cosmo=COSMO):
     return dVdz_unnorm(z, cosmo) / norm
-
 
 
 # def get_zprior_single_pix():

@@ -116,7 +116,7 @@ class MockEvent:
             self.make_true_intrinsic_parameter_values()  # Adds true values to self.truths
             print('Done.')
         else:
-            print('\nNot generating extrinsic parameters.')
+            print('\nNot generating intrinsic parameters.')
 
         print(f'Confirming: {len(self.truths)} GWs have been sampled')
 
@@ -132,7 +132,7 @@ class MockEvent:
             self._measure_extrinsic_parameters()
             print('Done.')
 
-        if self.model_dict is not None:
+        if self.intrinsic_flag:
             print('\nGenerating intrinsic parameter posteriors...')
             self._measure_intrinsic_parameters()
             print('Done.')
@@ -150,7 +150,7 @@ class MockEvent:
         # If 3D pos have been made, there exists a column ['from_agn'], which needs to be paired with the proper intrinsic events, 
         # and ['redshift'], which is needed for the measurement errors. TODO: rethink this, because it could cause biases...
         if not self.extrinsic_flag:
-            sys.exit('TODO Implement stuff here')
+            sys.exit('TODO - Implement stuff here')
             # arr = np.zeros(self.n_agn_events + self.n_alt_events, dtype=bool)
             # arr[:self.n_agn_events] = True
             # self.truths['from_agn'] = arr
@@ -248,6 +248,8 @@ class MockEvent:
                     _ = future.result(timeout=60)
                 except Exception as e:
                     print(f"Error processing event {future_to_index[future]}: {e}")
+                    print('Only implemented the nuclear option: removing file')
+                    os.remove(os.path.join(self.outdir, f"gw_{future_to_index[future]:05d}.h5"))
 
 
     def _process_single_event_extrinsic(self, index, x, y, z, kappa, dobs) -> None:
@@ -266,8 +268,22 @@ class MockEvent:
         ##### Distances #####
         # Importance resampling of distances
         dtpostsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=2 * self.n_posterior_samples))
+
+        dtpostsamps = dtpostsamps[dtpostsamps > 0]  # WARNING: Negative values are very rare, (currently tested with 20% error, get only 1 negative sample sometimes), so just remove them. But be aware!
+
         weights = dtpostsamps / np.sum(dtpostsamps)  # Importance weights proportional to d
         lumdist_samples = np.random.choice(dtpostsamps, size=self.n_posterior_samples, p=weights)
+        
+        # above_thresh = (lumdist_samples > 13975914.444369921)
+        # below_thresh = (lumdist_samples < 4.415205612145357e-05)
+        # n_above_thresh = np.sum(above_thresh)
+        # n_below_thresh = np.sum(below_thresh)
+        # if n_above_thresh != 0:
+        #     print(f'Removing {n_above_thresh} lumdist samples above bracket, namely: {lumdist_samples[above_thresh]}')
+        # if n_below_thresh != 0:
+        #     print(f'Removing {n_below_thresh} lumdist samples below bracket, namely: {lumdist_samples[below_thresh]}')
+        
+        # lumdist_samples = lumdist_samples[~above_thresh & ~below_thresh]
 
         # Redshift and comoving distance calculations
         redshift_samples = fast_z_at_value(self.cosmo.luminosity_distance, lumdist_samples * u.Mpc)
