@@ -28,7 +28,7 @@ This code calculates the integral in the likelihood. Specifically,
 
 $$
 \begin{equation}
-\int p(\theta | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm agn}(z | \Omega) + (1 - f_{\rm agn} \cdot f_{\rm c}(\Omega)) \cdot p_{\rm alt}(z) \right] \mathrm{d}z\mathrm{d}\Omega
+\int p(z, \Omega | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm agn}(z | \Omega) + (1 - f_{\rm agn} \cdot f_{\rm c}(\Omega)) \cdot p_{\rm alt}(z) \right] \mathrm{d}z\mathrm{d}\Omega
 \end{equation}
 $$
 
@@ -36,19 +36,19 @@ which is split into three integrals:
 
 $$
 \begin{equation}
-\int p(\theta | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm agn}(z | \Omega) \right]\mathrm{d}z\mathrm{d}\Omega
+\int p(z, \Omega | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm agn}(z | \Omega) \right]\mathrm{d}z\mathrm{d}\Omega
 \end{equation}
 $$
 
 $$
 \begin{equation}
-\int p(\theta | d_{\rm GW}) \left[p_{\rm alt}(z) \right]\mathrm{d}z\mathrm{d}\Omega
+\int p(z, \Omega | d_{\rm GW}) \left[p_{\rm alt}(z) \right]\mathrm{d}z\mathrm{d}\Omega
 \end{equation}
 $$
 
 $$
 \begin{equation}
-\int p(\theta | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm alt}(z) \right]\mathrm{d}z\mathrm{d}\Omega
+\int p(z, \Omega | d_{\rm GW}) \left[f_{\rm agn} \cdot f_{\rm c}(\Omega) \cdot p_{\rm alt}(z) \right]\mathrm{d}z\mathrm{d}\Omega
 \end{equation}
 $$
 

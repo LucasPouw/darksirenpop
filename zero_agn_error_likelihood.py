@@ -72,8 +72,8 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
 
     # start = time.time()
     unique_pix, counts = np.unique(mc_pix, return_counts=True)  # Loop over the pixels that have been sampled
-    cw_p_agn = 0
-    cw_p_alt = 0
+    cw_p_agn = 0  # int p(z, Omega | d) * f_agn * f_c(Omega) * p_agn(z | Omega) dz dOmega
+    cw_p_alt = 0  # int p(z, Omega | d) * f_agn * f_c(Omega) * p_alt(z) dz dOmega
     # print(f'Got {len(unique_pix)} pix: {counts}')
     for j, pix in enumerate(unique_pix):
         cmap_pix = pixdict[pix]
@@ -124,7 +124,7 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
 
     cw_p_agn /= n_mc_samps
     cw_p_alt /= n_mc_samps
-    p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps  # Also save unweighted value
+    p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps  # int p(z, Omega | d) * p_alt(z) dz dOmega
     # print('that took', time.time() - start)
     if cw_p_agn < cw_p_alt:
         print('ALT', cw_p_agn, cw_p_alt, p_alt)
