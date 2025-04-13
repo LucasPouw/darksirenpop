@@ -58,7 +58,7 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
                                                     completeness,
                                                     pixdict,
                                                     n_mc_samps,
-                                                    kde_thresh=10):
+                                                    kde_thresh=100):
 
     redshift, ra, dec, nsamps = load_posterior_samples(posterior_samps_path, approximant=field)
     post_pix = ipix_from_ra_dec(nside=catalog_nside, ra=ra, dec=dec, nest=True)
@@ -137,14 +137,14 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
 def main():
 
     ############################################### INPUTS ###############################################
-    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/lumdistsig0.01_from_1k_small_zero_zerr_catalog.json'  # '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
+    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/dl_20percent_dz_00percent_nagn_1e3.json'  # '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
     with open(post_path) as f:
         posterior_samples_dictionary = json.load(f)
 
     catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_1000_ZMAX_3_SIGMA_0.hdf5'
-    catalog_nside = 32
+    catalog_nside = 16
     c_map_path = None
-    outfilename = f'zero_error_correct_1percent_{hp.nside2npix(catalog_nside)}pix'
+    outfilename = 'dl_20percent_dz_00percent_nagn_1e3' # f'zero_error_correct_1percent_{hp.nside2npix(catalog_nside)}pix'
     cmap_nside = 1
     posterior_samples_field = 'mock'
     n_mc_samps = int(1e4)
