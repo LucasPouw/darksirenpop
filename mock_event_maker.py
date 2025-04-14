@@ -14,6 +14,7 @@ from scipy.stats import vonmises_fisher
 from astropy.table import Table
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from multiprocessing import cpu_count
+import traceback
 
 
 class MockEvent:
@@ -247,8 +248,9 @@ class MockEvent:
                 try:
                     _ = future.result(timeout=60)
                 except Exception as e:
+                    traceback.print_exc()
                     print(f"Error processing event {future_to_index[future]}: {e}")
-                    print('Only implemented the nuclear option: removing file')
+                    print('Only implemented the nuclear option: removing file - WATCH SELECTION EFFECTS IF THIS HAPPENS TOO OFTEN')
                     os.remove(os.path.join(self.outdir, f"gw_{future_to_index[future]:05d}.h5"))
 
 
@@ -267,12 +269,17 @@ class MockEvent:
 
         ##### Distances #####
         # Importance resampling of distances
-        dtpostsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=2 * self.n_posterior_samples))
+        dtrue_postsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=3 * self.n_posterior_samples))
+        neg = dtrue_postsamps < 0
+        if np.sum(neg) != 0:
+            print(f'Removing {np.sum(neg)} negative luminosity distance samples.')
+        dtrue_postsamps = dtrue_postsamps[~neg]  # WARNING: Negative values are very rare, (currently tested with 20% error, get only 1 negative sample sometimes), so just remove them. But be aware!
+        # z = fast_z_at_value(self.cosmo.luminosity_distance, dtrue_postsamps * u.Mpc)
+        # weights = np.where(z < self.zdraw, dtrue_postsamps, 0)
+        # weights /= np.sum(weights)  
+        weights = dtrue_postsamps / np.sum(dtrue_postsamps)  # Importance weights proportional to d
 
-        dtpostsamps = dtpostsamps[dtpostsamps > 0]  # WARNING: Negative values are very rare, (currently tested with 20% error, get only 1 negative sample sometimes), so just remove them. But be aware!
-
-        weights = dtpostsamps / np.sum(dtpostsamps)  # Importance weights proportional to d
-        lumdist_samples = np.random.choice(dtpostsamps, size=self.n_posterior_samples, p=weights)
+        lumdist_samples = np.random.choice(dtrue_postsamps, size=self.n_posterior_samples, p=weights)
         
         # above_thresh = (lumdist_samples > 13975914.444369921)
         # below_thresh = (lumdist_samples < 4.415205612145357e-05)
@@ -282,7 +289,6 @@ class MockEvent:
         #     print(f'Removing {n_above_thresh} lumdist samples above bracket, namely: {lumdist_samples[above_thresh]}')
         # if n_below_thresh != 0:
         #     print(f'Removing {n_below_thresh} lumdist samples below bracket, namely: {lumdist_samples[below_thresh]}')
-        
         # lumdist_samples = lumdist_samples[~above_thresh & ~below_thresh]
 
         # Redshift and comoving distance calculations

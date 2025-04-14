@@ -47,7 +47,46 @@ def load_posterior_samples(path, approximant):
         ra = data['posterior_samples']['ra']
         dec = data['posterior_samples']['dec']
         nsamps = len(ra)
-    return redshift, ra, dec, nsamps
+        from_agn = data['truths']['from_agn'][()]
+        true_z = data['truths']['redshift'][()]
+    return redshift, ra, dec, nsamps, (from_agn, true_z)
+
+
+def single_event_fixpop_no_agn_err_1dpos_likelihood(index,
+                                                    catalog_nside,
+                                                    posterior_samps_path, 
+                                                    field,
+                                                    galaxy_catalog,
+                                                    completeness,
+                                                    pixdict,
+                                                    n_mc_samps,
+                                                    kde_thresh=100):
+    """Assumes perfectly known 3D AGN position and GW sky position. Therefore, evaluate GW redshift posterior
+    only at its true redshift for p_agn, if from AGN, else p_agn = 0. For p_alt, do an MC integral.
+    
+    Assuming c = 1!
+    """
+
+    redshift, _, _, nsamps, (from_agn, true_z) = load_posterior_samples(posterior_samps_path, approximant=field)
+
+    redshift_posterior = gaussian_kde(redshift)
+    if from_agn:
+        cw_p_agn = redshift_posterior(true_z)[0]
+    else:
+        cw_p_agn = 0
+
+    idx_array = np.random.choice(np.arange(nsamps), size=n_mc_samps)
+    mc_redshift = redshift[idx_array]
+
+    p_alt = np.sum(dVdz_prior(mc_redshift[mc_redshift < ZDRAW])) / n_mc_samps
+    cw_p_alt = p_alt
+
+    if cw_p_agn < cw_p_alt:
+        print(index, 'ALT', cw_p_agn, cw_p_alt, p_alt)
+    else:
+        print(index, 'AGN', cw_p_agn, cw_p_alt, p_alt)
+    
+    return index, cw_p_agn, cw_p_alt, p_alt
 
 
 def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
@@ -60,13 +99,14 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
                                                     n_mc_samps,
                                                     kde_thresh=100):
 
-    redshift, ra, dec, nsamps = load_posterior_samples(posterior_samps_path, approximant=field)
+    redshift, ra, dec, nsamps, _ = load_posterior_samples(posterior_samps_path, approximant=field)
     post_pix = ipix_from_ra_dec(nside=catalog_nside, ra=ra, dec=dec, nest=True)
 
     idx_array = np.random.choice(np.arange(nsamps), size=n_mc_samps)
 
     mc_ra = ra[idx_array]
     mc_dec = dec[idx_array]
+    
     mc_pix = ipix_from_ra_dec(nside=catalog_nside, ra=mc_ra, dec=mc_dec, nest=True)
     mc_redshift = redshift[idx_array]
 
@@ -75,6 +115,8 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
     cw_p_agn = 0  # int p(z, Omega | d) * f_agn * f_c(Omega) * p_agn(z | Omega) dz dOmega
     cw_p_alt = 0  # int p(z, Omega | d) * f_agn * f_c(Omega) * p_alt(z) dz dOmega
     # print(f'Got {len(unique_pix)} pix: {counts}')
+    n_ignored = 0
+    counts_ignored = 0
     for j, pix in enumerate(unique_pix):
         cmap_pix = pixdict[pix]
         all_z_in_pix = redshift[post_pix == pix]
@@ -83,9 +125,27 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
             subcatalog = subcatalog[subcatalog['redshift'] < ZDRAW]  # Only consider AGN below z_draw
             if len(subcatalog) != 0:
                 redshift_kde = gaussian_kde(all_z_in_pix)
-                cw_p_agn += np.sum(redshift_kde(subcatalog['redshift'])) * counts[j] * completeness[cmap_pix] / len(subcatalog)
+                # z_interp = np.linspace(0, ZDRAW, 100)
+                # redshift_kde = interp1d(z_interp, redshift_kde(z_interp), bounds_error=False, fill_value=0)
+                # norm = quad(redshift_kde, 0, ZDRAW)[0]
+
+                # print(redshift_kde(2.00001))
+
+                # zz = np.linspace(0, 3, 1000)
+                # plt.figure()
+                # plt.plot(zz, redshift_kde(zz), zorder=3, color='red')
+                # plt.hist(all_z_in_pix, density=True, bins=30)
+                # plt.title(f'{pix}, {len(all_z_in_pix)}')
+                # plt.savefig('kde.pdf')
+                # plt.close()
+                # sys.exit(1)
+                cw_p_agn += np.sum(redshift_kde(subcatalog['redshift'])) * counts[j] * completeness[cmap_pix] / len(subcatalog) # / norm
+        else:
+            counts_ignored += counts[j]
+            n_ignored += len(all_z_in_pix)
 
         mc_z_samp_in_pix = mc_redshift[mc_pix == pix]
+        mc_z_samp_in_pix = mc_z_samp_in_pix[mc_z_samp_in_pix < ZDRAW]
         cw_p_alt += np.sum(dVdz_prior(mc_z_samp_in_pix)) * completeness[cmap_pix]
 
         if np.isnan(cw_p_agn):
@@ -124,12 +184,14 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
 
     cw_p_agn /= n_mc_samps
     cw_p_alt /= n_mc_samps
-    p_alt = np.sum(dVdz_prior(mc_redshift)) / n_mc_samps  # int p(z, Omega | d) * p_alt(z) dz dOmega
+    p_alt = np.sum(dVdz_prior(mc_redshift[mc_redshift < ZDRAW])) / n_mc_samps  # int p(z, Omega | d) * p_alt(z) dz dOmega
     # print('that took', time.time() - start)
     if cw_p_agn < cw_p_alt:
-        print('ALT', cw_p_agn, cw_p_alt, p_alt)
+        print(index, 'ALT', cw_p_agn, cw_p_alt, p_alt)
     else:
-        print('AGN', cw_p_agn, cw_p_alt, p_alt)
+        print(index, 'AGN', cw_p_agn, cw_p_alt, p_alt)
+    
+    # print(index, counts_ignored / n_mc_samps, n_ignored / 5e4, 'ignored')
     
     return index, cw_p_agn, cw_p_alt, p_alt
 
@@ -137,24 +199,25 @@ def single_event_fixpop_no_agn_err_3dpos_likelihood(index,
 def main():
 
     ############################################### INPUTS ###############################################
-    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/dl_20percent_dz_00percent_nagn_1e3.json'  # '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
+    post_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/dl_20percent_dz_00percent_nagn_1e4_dsky_0.01deg2.json'  # '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/posterior_samples_mock_v7.json'
     with open(post_path) as f:
         posterior_samples_dictionary = json.load(f)
 
-    catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_1000_ZMAX_3_SIGMA_0.hdf5'
-    catalog_nside = 16
+    catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_10000_ZMAX_3_SIGMA_0.hdf5'
+    catalog_nside = 32
     c_map_path = None
-    outfilename = 'dl_20percent_dz_00percent_nagn_1e3' # f'zero_error_correct_1percent_{hp.nside2npix(catalog_nside)}pix'
+    outfilename = 'dl_20percent_dz_00percent_nagn_1e4_dsky_0.01deg2' # f'zero_error_correct_1percent_{hp.nside2npix(catalog_nside)}pix'
     cmap_nside = 1
     posterior_samples_field = 'mock'
-    n_mc_samps = int(1e4)
-    ncpu = cpu_count()
+    n_mc_samps = int(3e4)
+    ncpu = os.cpu_count()
 
     #######################################################################################################
     
 
     N_gws = len(posterior_samples_dictionary.items())
     agn_catalog = load_catalog_from_path(name='MOCK', catalog_path=catalog_path)
+    agn_catalog.clean_cache(mtime=np.inf)
 
     # Calculate likelihood for each event
     cw_p_agn_arr = np.zeros(N_gws)
@@ -171,38 +234,37 @@ def main():
     pixdict = make_pixdict(low_nside=cmap_nside, high_nside=catalog_nside)
 
     # FOR TESTING
-    # for i, key in enumerate(posterior_samples_dictionary):
-    #     single_event_fixpop_no_agn_err_3dpos_likelihood(i, 
-    #                                                     catalog_nside,
-    #                                                     posterior_samples_dictionary[key], 
-    #                                                     posterior_samples_field,
-    #                                                     agn_catalog,
-    #                                                     completeness,
-    #                                                     pixdict,
-    #                                                     n_mc_samps)
-    #     break
+    for i, key in enumerate(posterior_samples_dictionary):
+        i, cw_p_agn_arr[i], cw_p_alt_arr[i], p_alt_arr[i] = single_event_fixpop_no_agn_err_1dpos_likelihood(i, 
+                                                        catalog_nside,
+                                                        posterior_samples_dictionary[key], 
+                                                        posterior_samples_field,
+                                                        agn_catalog,
+                                                        completeness,
+                                                        pixdict,
+                                                        n_mc_samps)
 
-    with ThreadPoolExecutor(max_workers=ncpu) as executor:
-        future_to_index = {executor.submit(
-                                        single_event_fixpop_no_agn_err_3dpos_likelihood, 
-                                        i, 
-                                        catalog_nside,
-                                        posterior_samples_dictionary[key], 
-                                        posterior_samples_field,
-                                        agn_catalog,
-                                        completeness,
-                                        pixdict,
-                                        n_mc_samps
-                                    ): i for i, key in enumerate(posterior_samples_dictionary)
-                                    }
+    # with ThreadPoolExecutor(max_workers=ncpu) as executor:
+    #     future_to_index = {executor.submit(
+    #                                     single_event_fixpop_no_agn_err_3dpos_likelihood, 
+    #                                     i, 
+    #                                     catalog_nside,
+    #                                     posterior_samples_dictionary[key], 
+    #                                     posterior_samples_field,
+    #                                     agn_catalog,
+    #                                     completeness,
+    #                                     pixdict,
+    #                                     n_mc_samps
+    #                                 ): i for i, key in enumerate(posterior_samples_dictionary)
+    #                                 }
         
-        # for future in tqdm(as_completed(future_to_index), total=N_gws):
-        for future in as_completed(future_to_index):
-            try:
-                i, cw_p_agn, cw_p_alt, p_alt = future.result(timeout=60)
-                cw_p_agn_arr[i], cw_p_alt_arr[i], p_alt_arr[i] = cw_p_agn, cw_p_alt, p_alt
-            except Exception as e:
-                print(f"Error processing event {future_to_index[future]}: {e}")
+    #     # for future in tqdm(as_completed(future_to_index), total=N_gws):
+    #     for future in as_completed(future_to_index):
+    #         try:
+    #             i, cw_p_agn, cw_p_alt, p_alt = future.result(timeout=60)
+    #             cw_p_agn_arr[i], cw_p_alt_arr[i], p_alt_arr[i] = cw_p_agn, cw_p_alt, p_alt
+    #         except Exception as e:
+    #             print(f"Error processing event {future_to_index[future]}: {e}")
 
     np.save(os.path.join(sys.path[0], f'cweighted_pagn_sky_{outfilename}'), cw_p_agn_arr)
     np.save(os.path.join(sys.path[0], f'cweighted_palt_sky_{outfilename}'), cw_p_alt_arr)

@@ -3,7 +3,7 @@ import glob
 import sys, os
 
 
-def make_mock_data_jsons(posterior_samples_path, fname):
+def make_mock_data_jsons(posterior_samples_path, outpath):
     '''
     Expected posterior samples name: gw_xxxxx.h5
     '''
@@ -14,7 +14,6 @@ def make_mock_data_jsons(posterior_samples_path, fname):
         gw_name = file.split('/')[-1].split('_')[-1].split('.')[0]
         post_dict[gw_name] = file
 
-    outpath = os.path.join(sys.path[0], fname)
     with open(outpath, 'w') as outfile:
         json.dump(post_dict, outfile)
     
@@ -26,4 +25,5 @@ def make_hyperparam_jsons():  # TODO
 
 
 if __name__ == '__main__':
-    _ = make_mock_data_jsons(posterior_samples_path='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/lumdistsig0.01_from_small_zero_zerr_catalog', fname='lumdistsig0.01_from_1k_small_zero_zerr_catalog.json')
+    _ = make_mock_data_jsons(posterior_samples_path='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/lumdistsig0.01_from_small_zero_zerr_catalog', 
+                             outpath='/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/lumdistsig0.01_from_1k_small_zero_zerr_catalog.json')
