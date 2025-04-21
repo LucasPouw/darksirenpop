@@ -95,7 +95,7 @@ class GalaxyCatalog:
     Interface for a generic galaxy catalog
     """
 
-    colnames = {'redshift', 'redshift_error', 'ra', 'dec'}
+    colnames = {'redshift', 'redshift_error', 'ra', 'dec', 'comoving_distance'}
 
     def __init__(self, data = None, name = 'Unknown Catalog'):
         self.data = data

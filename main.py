@@ -65,27 +65,27 @@ def main():
 
     ################# ARGUMENTS FOR AGN CATALOG #################
     n_agn = int(1e4)                # Number of AGN in the catalog
-    max_redshift = 3                # Maximum true AGN redshift
+    max_redshift = 0.1                # Maximum true AGN redshift
     relative_redshift_error = 0     # Relative redshift error (sigma), such that z_obs = z_true * (1 + sigma * N(0,1))
     completeness = 1                # AGN catalog completeness
     catalog_dir = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs'  # Directory to save catalog as .hdf5 file
     
     # catalog_path = make_agn_catalog(n_agn, max_redshift, relative_redshift_error, completeness, catalog_dir)  # If you want a pre-made catalog, change to cat_path = \your\path\catalog.hdf5
-    catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_10000_ZMAX_3_SIGMA_0.hdf5'
+    catalog_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/catalogs/mockcat_NAGN_10000_ZMAX_0.1_SIGMA_0.hdf5'
     #############################################################
 
 
     ################# ARGUMENTS FOR GW POSTERIORS #################
-    nevents = int(1e3)      # Number of GW events to simulate
+    nevents = int(1e4)      # Number of GW events to simulate
     fagn = 0.5              # Fraction of GW events from AGN
-    zdraw = 2               # Maximum true GW redshift
-    lumdist_relerr = 0.2    # Relative luminosity distance error
-    sky_area_low = 0.01       # (Approximate) minimum 68% CL sky area in deg^2
-    sky_area_high = 0.01001      # (Approximate) maximum 68% CL sky area in deg^2
-    gw_outdir = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/dl_20percent_dz_00percent_nagn_1e4_dsky_0.01deg2'  # DEFAULT_POSTERIOR_OUTDIR  # os.path.join(sys.path[0], "output/mock_posteriors_v7"),
+    zdraw = max_redshift               # Maximum true GW redshift
+    lumdist_relerr = 0.01    # Relative luminosity distance error
+    sky_area_low = 100       # (Approximate) minimum 68% CL sky area in deg^2
+    sky_area_high = 200      # (Approximate) maximum 68% CL sky area in deg^2
+    gw_outdir = f'/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/output/dl_{lumdist_relerr * 100}percent_dz_{relative_redshift_error * 100}percent_nagn_{n_agn}_dsky_{sky_area_low}_{sky_area_high}'  # DEFAULT_POSTERIOR_OUTDIR  # os.path.join(sys.path[0], "output/mock_posteriors_v7"),
     npostsamps = DEFAULT_N_POSTERIOR_SAMPLES  # Default is 50k samples per GW
-    ncpu = 4                # Number of threads for writing posteriors
-    json_path = '/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/dl_20percent_dz_00percent_nagn_1e4_dsky_0.01deg2.json'  # .json file is used to locate GW posteriors by name, e.g., {'gw_00013': /path/to/gw_00013.hdf5'}
+    ncpu = 4    # Number of threads for writing posteriors
+    json_path = f'/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/dl_{lumdist_relerr * 100}percent_dz_{relative_redshift_error * 100}percent_nagn_{n_agn}_dsky_{sky_area_low}_{sky_area_high}.json'  # .json file is used to locate GW posteriors by name, e.g., {'gw_00013': /path/to/gw_00013.hdf5'}
 
     use_extrinsic = True
     use_intrinsic = False  # Don't change this, intrinsic parameter stuff doesn't work yet

@@ -15,7 +15,7 @@ from concurrent.futures import as_completed, ThreadPoolExecutor
 from multiprocessing import cpu_count
 
 
-ZMIN = 1e-10
+ZMIN = 0
 ZDRAW = 2
 ZMAX = ZDRAW
 COSMO = DEFAULT_COSMOLOGY

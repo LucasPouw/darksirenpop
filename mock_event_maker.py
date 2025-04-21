@@ -15,6 +15,7 @@ from astropy.table import Table
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from multiprocessing import cpu_count
 import traceback
+import healpy as hp
 
 
 class MockEvent:
@@ -227,9 +228,13 @@ class MockEvent:
         # Compute VonMises-Fisher concentration parameters
         sky_areas_68p = self._sample_68p_sky_area()
         kappas = self._kappa_from_sky_area(sky_areas_68p)
+        
+        # dtrue = self.truths['luminosity_distance'].to_numpy()
+        # dobs = dtrue * (1. + self.lumdist_relerr * np.random.normal(size=self.n_events))  # Observed distances
 
-        dtrue = self.truths['luminosity_distance'].to_numpy()
-        dobs = dtrue * (1. + self.lumdist_relerr * np.random.normal(size=self.n_events))  # Observed distances
+        print('Analyzing comoving distance for a test')
+        dtrue = self.truths['comoving_distance'].to_numpy()
+        dobs = np.random.normal(loc=dtrue, scale=np.tile(RCOM_SCALE, self.n_events))  # Fixed error at 10 Mpc
 
 
         with ThreadPoolExecutor(max_workers=min(cpu_count(), self.ncpu)) as executor:
@@ -262,47 +267,69 @@ class MockEvent:
         skymap_center = vonmises_fisher.rvs(mu_true, kappa, size=1)  # Observed center
 
         # Generate posterior samples
+        # skymap_samps = vonmises_fisher.rvs(skymap_center[0], kappa, size=int(1e7))
+        # _, theta_skymap, phi_skymap = cartesian2spherical(skymap_samps[:, 0], skymap_samps[:, 1], skymap_samps[:, 2])
+        # pix_indices = hp.ang2pix(32, theta_skymap, phi_skymap, nest=True)
+        # skymap = np.zeros(hp.nside2npix(32))
+        # np.add.at(skymap, pix_indices, 1) 
+        # skymap /= 1e7
+
         samples = vonmises_fisher.rvs(skymap_center[0], kappa, size=self.n_posterior_samples)
         _, theta_samples, phi_samples = cartesian2spherical(samples[:, 0], samples[:, 1], samples[:, 2])
 
         dec_samples = 0.5 * np.pi - theta_samples
 
-        ##### Distances #####
-        # Importance resampling of distances
-        dtrue_postsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=3 * self.n_posterior_samples))
-        neg = dtrue_postsamps < 0
-        if np.sum(neg) != 0:
-            print(f'Removing {np.sum(neg)} negative luminosity distance samples.')
-        dtrue_postsamps = dtrue_postsamps[~neg]  # WARNING: Negative values are very rare, (currently tested with 20% error, get only 1 negative sample sometimes), so just remove them. But be aware!
-        # z = fast_z_at_value(self.cosmo.luminosity_distance, dtrue_postsamps * u.Mpc)
-        # weights = np.where(z < self.zdraw, dtrue_postsamps, 0)
-        # weights /= np.sum(weights)  
-        weights = dtrue_postsamps / np.sum(dtrue_postsamps)  # Importance weights proportional to d
 
-        lumdist_samples = np.random.choice(dtrue_postsamps, size=self.n_posterior_samples, p=weights)
+        print('Doing abs error comdist test')
+        dtrue_postsamps = np.random.normal(loc=dobs, scale=RCOM_SCALE, size=self.n_posterior_samples)
+        lumdist_samples = dtrue_postsamps
+        redshift_samples = dtrue_postsamps
+        comdist_samples = dtrue_postsamps
+
+        # ##### Distances #####
+        # # Importance resampling of distances
+        # dtrue_postsamps = dobs / (1 + self.lumdist_relerr * np.random.normal(size=4 * self.n_posterior_samples))
+        # neg = dtrue_postsamps < 0
+        # if np.sum(neg) != 0:
+        #     print(f'Removing {np.sum(neg)} negative luminosity distance samples.')
+        # dtrue_postsamps = dtrue_postsamps[~neg]  # WARNING: Negative values are very rare, (currently tested with 20% error, get only 1 negative sample sometimes), so just remove them. But be aware!
+        # # print('using different weights for a test')
+        # weights = dtrue_postsamps**1 / np.sum(dtrue_postsamps**1)  # Importance weights proportional to d
+
+        # # print('Omit Jacobian for test')
+        # lumdist_samples = np.random.choice(dtrue_postsamps, size=2 * self.n_posterior_samples, p=weights)
         
-        # above_thresh = (lumdist_samples > 13975914.444369921)
-        # below_thresh = (lumdist_samples < 4.415205612145357e-05)
-        # n_above_thresh = np.sum(above_thresh)
-        # n_below_thresh = np.sum(below_thresh)
-        # if n_above_thresh != 0:
-        #     print(f'Removing {n_above_thresh} lumdist samples above bracket, namely: {lumdist_samples[above_thresh]}')
-        # if n_below_thresh != 0:
-        #     print(f'Removing {n_below_thresh} lumdist samples below bracket, namely: {lumdist_samples[below_thresh]}')
-        # lumdist_samples = lumdist_samples[~above_thresh & ~below_thresh]
+        # # above_thresh = (lumdist_samples > 13975914.444369921)
+        # # below_thresh = (lumdist_samples < 4.415205612145357e-05)
+        # # n_above_thresh = np.sum(above_thresh)
+        # # n_below_thresh = np.sum(below_thresh)
+        # # if n_above_thresh != 0:
+        # #     print(f'Removing {n_above_thresh} lumdist samples above bracket, namely: {lumdist_samples[above_thresh]}')
+        # # if n_below_thresh != 0:
+        # #     print(f'Removing {n_below_thresh} lumdist samples below bracket, namely: {lumdist_samples[below_thresh]}')
+        # # lumdist_samples = lumdist_samples[~above_thresh & ~below_thresh]
 
-        # Redshift and comoving distance calculations
-        redshift_samples = fast_z_at_value(self.cosmo.luminosity_distance, lumdist_samples * u.Mpc)
-        comdist_samples = self.cosmo.comoving_distance(redshift_samples).value
+        # # Redshift and comoving distance calculations
+        # zsamp = fast_z_at_value(self.cosmo.luminosity_distance, lumdist_samples * u.Mpc)
+        # H_z = self.cosmo.H(zsamp).value  # H(z) in km/s/Mpc
+        # chi_z = self.cosmo.comoving_distance(zsamp).value  # in Mpc
+        # dDL_dz = chi_z + (1 + zsamp) * (3e5 / H_z)  # c = 3e5 km/s, TODO: change to astropy.const
+        # z_weights = 1 / dDL_dz
+        # z_weights /= np.sum(z_weights)
+        # redshift_samples = np.random.choice(zsamp, self.n_posterior_samples, p=z_weights)
+        # # redshift_samples = fast_z_at_value(self.cosmo.luminosity_distance, lumdist_samples * u.Mpc)
+        # # redshift_samples = lumdist_samples
+        # comdist_samples = self.cosmo.comoving_distance(redshift_samples).value  # TODO: check if this is correct
 
         # Write samples to hdf5
-        samples_table = Table([phi_samples, dec_samples, lumdist_samples, comdist_samples, redshift_samples], 
+        samples_table = Table([phi_samples, dec_samples, lumdist_samples[:self.n_posterior_samples], comdist_samples, redshift_samples], 
                                     names=('ra', 'dec', 'luminosity_distance', 'comoving_distance', 'redshift'))
         filename = os.path.join(self.outdir, f"gw_{index:05d}.h5")
 
         with h5py.File(filename, "a") as f:
             mock_group = f.require_group("mock")  # Takes place of approximant in real GW data
             mock_group.create_dataset('posterior_samples', data=samples_table)
+            # mock_group.create_dataset('skymap', data=skymap)
 
         return
     
@@ -313,7 +340,7 @@ class MockEvent:
         '''
 
         mtrue = self.truths['mass_1_source'].to_numpy()
-        mobs = mtrue * (1. + self.mass_relerr * np.random.normal(size=self.n_events))  # Observed masses
+        mobs = mtrue * (1. + self.mass_relerr * np.random.normal(size=self.n_events))  # Observed masses - TODO: not sure if this is correct
 
         with ThreadPoolExecutor(max_workers=min(cpu_count(), self.ncpu)) as executor:
             future_to_index = {executor.submit(
@@ -396,19 +423,33 @@ class MockEvent:
 
     @staticmethod
     def _get_model(model_str, hypothesis):
-        match model_str:
-            case 'BBH-powerlaw':
-                return BBH_powerlaw()
-            case 'BBH-powerlaw-gaussian':
-                return BBH_powerlaw_gaussian()
-            case 'BBH-broken-powerlaw':
-                return BBH_broken_powerlaw()
-            case 'PrimaryMass-gaussian':
-                return PrimaryMass_gaussian()
-            case 'PrimaryMass-powerlaw-gaussian':
-                return PrimaryMass_powerlaw_gaussian()
-            case _:
-                sys.exit(f'Unknown {hypothesis} model: {model_str}')
+        # match model_str:
+        #     case 'BBH-powerlaw':
+        #         return BBH_powerlaw()
+        #     case 'BBH-powerlaw-gaussian':
+        #         return BBH_powerlaw_gaussian()
+        #     case 'BBH-broken-powerlaw':
+        #         return BBH_broken_powerlaw()
+        #     case 'PrimaryMass-gaussian':
+        #         return PrimaryMass_gaussian()
+        #     case 'PrimaryMass-powerlaw-gaussian':
+        #         return PrimaryMass_powerlaw_gaussian()
+        #     case _:
+        #         sys.exit(f'Unknown {hypothesis} model: {model_str}')
+
+        if model_str == 'BBH-powerlaw':
+            return BBH_powerlaw()
+        elif model_str == 'BBH-powerlaw-gaussian':
+            return BBH_powerlaw_gaussian()
+        elif model_str == 'BBH-broken-powerlaw':
+            return BBH_broken_powerlaw()
+        elif model_str == 'PrimaryMass-gaussian':
+            return PrimaryMass_gaussian()
+        elif model_str == 'PrimaryMass-powerlaw-gaussian':
+            return PrimaryMass_powerlaw_gaussian()
+        else:
+            sys.exit(f'Unknown {hypothesis} model: {model_str}')
+
 
 
     @staticmethod

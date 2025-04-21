@@ -68,7 +68,7 @@ def cartesian2spherical(x, y, z):
     return r, theta, phi
 
 
-def fast_z_at_value(function, values, num=10000):
+def fast_z_at_value(function, values, num=100):
     zmin = z_at_value(function, values.min())
     zmax = z_at_value(function, values.max())
     zgrid = np.geomspace(zmin, zmax, num)
@@ -120,27 +120,46 @@ if __name__ == '__main__':
     import scipy.stats as stats
     from scipy.optimize import root_scalar
     from scipy.special import erf
+    import time
+    from tqdm import tqdm
 
     cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
 
-    cl = 0.999
-    sig = 500
-    sig2 = 1
-    xyz_true = np.array([[5000, 3000, 1000], [10, 10, 10]])
-    std = np.array([[sig, sig, sig], [sig2, sig2, sig2]])
+    n_trials = 100
+    time_arr = np.zeros(n_trials)
+    time_arr2 = np.zeros(n_trials)
+    for i in tqdm(range(n_trials)):
+        rlum_obs = (np.random.uniform(low=0, high=100, size=1))**(1/3)
+        lumdist_arr = rlum_obs / (1 + 0.1 * np.random.normal(size=4 * int(1e5)))
 
-    def cl_volume_from_sigma(cl, sigmas):
-        '''Calculates length of CL% vector when x, y, z are normally distributed with the same sigma'''
-        radii = np.zeros(len(sigmas))
-        for i, sigma in enumerate(sigmas):
-            vector_length_cdf = lambda x: erf(x / (sigma * np.sqrt(2))) - np.sqrt(2) / (sigma * np.sqrt(np.pi)) * x * np.exp(-x**2 / (2 * sigma**2)) - cl
-            radii[i] = root_scalar(vector_length_cdf, bracket=[0, 100 * sigma], method='bisect').root
-        return 4 * np.pi * radii**3 / 3
+        start = time.time()
+        vals1 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100000)
+        time_arr[i] = time.time() - start
 
-    xyz_meas = np.random.normal(loc=xyz_true, scale=std, size=(2, 3))
-    print(xyz_meas)
-    volumes = cl_volume_from_sigma(cl, np.array([sig, sig2]))
-    print(volumes)
+        start = time.time()
+        vals2 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100)
+        time_arr2[i] = time.time() - start
+    print(np.mean(time_arr), np.mean(time_arr2))
+    # print(vals1 - vals2)
+
+    # cl = 0.999
+    # sig = 500
+    # sig2 = 1
+    # xyz_true = np.array([[5000, 3000, 1000], [10, 10, 10]])
+    # std = np.array([[sig, sig, sig], [sig2, sig2, sig2]])
+
+    # def cl_volume_from_sigma(cl, sigmas):
+    #     '''Calculates length of CL% vector when x, y, z are normally distributed with the same sigma'''
+    #     radii = np.zeros(len(sigmas))
+    #     for i, sigma in enumerate(sigmas):
+    #         vector_length_cdf = lambda x: erf(x / (sigma * np.sqrt(2))) - np.sqrt(2) / (sigma * np.sqrt(np.pi)) * x * np.exp(-x**2 / (2 * sigma**2)) - cl
+    #         radii[i] = root_scalar(vector_length_cdf, bracket=[0, 100 * sigma], method='bisect').root
+    #     return 4 * np.pi * radii**3 / 3
+
+    # xyz_meas = np.random.normal(loc=xyz_true, scale=std, size=(2, 3))
+    # print(xyz_meas)
+    # volumes = cl_volume_from_sigma(cl, np.array([sig, sig2]))
+    # print(volumes)
 
     # r, theta, phi = cartesian2spherical(x, y, z)
 

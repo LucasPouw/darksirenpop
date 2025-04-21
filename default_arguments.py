@@ -11,3 +11,5 @@ DEFAULT_COSMOLOGY = FlatLambdaCDM(H0=DEFAULT_H0, Om0=DEFAULT_OM0)
 DEFAULT_N_POSTERIOR_SAMPLES = int(5e4)
 DEFAULT_N_CPU = 1
 DEFAULT_POSTERIOR_OUTDIR = os.path.join(sys.path[0], "output/default_posteriors")
+
+RCOM_SCALE = 10
