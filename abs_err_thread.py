@@ -1,4 +1,3 @@
-#%%
 import numpy as np
 import matplotlib.pyplot as plt
 from utils import uniform_shell_sampler, make_nice_plots
@@ -116,19 +115,6 @@ def full_analysis_likelihood_thread(index, batch=BATCH, N_true_fagns=N_TRUE_FAGN
 
 if __name__ == '__main__':
 
-    # n = 100
-    # arr1 = np.zeros(BATCH * n)
-    # arr2 = np.zeros(BATCH * n)
-    # for i in tqdm(range(n)):
-    #     p_agn_agn_gws, p_alt_agn_gws, p_agn_alt_gws, p_alt_alt_gws = generate_and_process_universe_realization()
-    #     arr1[int(i * BATCH):int((i+1) * BATCH)] = p_agn_agn_gws
-    #     arr2[int(i * BATCH):int((i+1) * BATCH)] = p_alt_agn_gws
-
-    # plt.figure()
-    # plt.hist(arr1 / arr2, bins=100)
-    # plt.savefig('ratio.pdf')
-    # plt.show
-
     estimation_arr = np.zeros((N_TRIALS, N_TRUE_FAGNS))
 
     # If you don't want to use threading, uncomment this
@@ -162,14 +148,12 @@ if __name__ == '__main__':
     plt.savefig('abserr.pdf')
     plt.show()
 
-    #%%
-
     relative_estimates = estimation_arr - TRUE_FAGNS
     q016 = np.quantile(relative_estimates, 0.16, axis=0)
     q084 = np.quantile(relative_estimates, 0.84, axis=0)
     plt.figure(figsize=(8,8))
-    plt.plot(TRUE_FAGNS, np.median(relative_estimates, axis=0), color='red', linewidth=3, label='median')
-    plt.plot(TRUE_FAGNS, np.mean(relative_estimates, axis=0), color='blue', linewidth=3, label='mean')
+    plt.plot(TRUE_FAGNS, np.median(relative_estimates, axis=0), color='red', linewidth=3, label='Median')
+    plt.plot(TRUE_FAGNS, np.mean(relative_estimates, axis=0), color='blue', linewidth=3, label='Mean')
     plt.plot(np.linspace(0,1,100), np.zeros(100), linestyle='dashed', color='black', zorder=6, linewidth=3)
     plt.fill_between(TRUE_FAGNS, q016, q084, color='red', alpha=0.3, label=r'$68\%$ CI')
     plt.xlabel(r'$f_{\rm agn, true}$')
@@ -179,4 +163,3 @@ if __name__ == '__main__':
     plt.xlim(0, 1)
     plt.savefig('abserr_diff.pdf')
     plt.show()
-#%%
