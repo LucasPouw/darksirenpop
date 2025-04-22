@@ -14,7 +14,7 @@ def dVdr_prior(r, rmax):
 
 
 ####################################################################
-GW_DIST_ERR = 1  # Absolute error
+GW_DIST_ERR = 10  # Absolute error
 RMIN = 0
 RMAX_GW = 100
 RTHRESH_GW = 100
@@ -26,7 +26,7 @@ NGW_ALT = BATCH
 NGW_AGN = BATCH
 NCPU = cpu_count()
 
-N_TRIALS = 1000
+N_TRIALS = 10000
 MAX_N_FAGNS = 51
 N_TRUE_FAGNS = min(BATCH + 1, MAX_N_FAGNS)    # Cannot create more f_agn values than use_N_gws+1 and don't want to generate more than max_N_fagns
 CALC_LOGLLH_AT_N_POINTS = 1000                  # Only change if you want higher resolution, but why would you?
@@ -57,12 +57,12 @@ def generate_and_process_universe_realization(rmin=RMIN, rmax=RMAX_GW, nagn=NAGN
     agn_pos, _, _ = uniform_shell_sampler(rmin, rmax, nagn)  # NO AGN NEEDED ABOVE RMAX_GW, p_rate = 0
 
     # GENERATE GWS UP TO RMAX_GW
-    true_pos_gw_alt, _, _ = uniform_shell_sampler(rmin, rmax, batch)
     true_pos_gw_agn = np.random.choice(agn_pos, batch)
+    true_pos_gw_alt, _, _ = uniform_shell_sampler(rmin, rmax, batch)
 
     # MEASURE GW LOCATIONS
-    obs_pos_gw_alt = np.random.normal(loc=true_pos_gw_alt, scale=gw_dist_err)
     obs_pos_gw_agn = np.random.normal(loc=true_pos_gw_agn, scale=gw_dist_err)
+    obs_pos_gw_alt = np.random.normal(loc=true_pos_gw_alt, scale=gw_dist_err)
 
     # CALCULATE HYPOTHESIS EVIDENCE
     p_agn_agn_gws, p_alt_agn_gws = process_gw_batch(obs_pos_gw_agn, agn_pos)
@@ -112,35 +112,51 @@ def full_analysis_likelihood_thread(index, batch=BATCH, N_true_fagns=N_TRUE_FAGN
 
     return index, log_llh_x_ax[np.argmax(log_llh, axis=0)]  # Maximize along logllh axis - TODO: change to interpolation
 
-estimation_arr = np.zeros((N_TRIALS, N_TRUE_FAGNS))
 
-# If you don't want to use threading, uncomment this
-# for i in range(N_TRIALS):
-#     estimation_arr[i,:] = full_analysis_likelihood_thread(i)
+if __name__ == '__main__':
 
-# If you don't want to use threading, comment this
-with ThreadPoolExecutor(max_workers=NCPU) as executor:
-    future_to_index = {executor.submit(full_analysis_likelihood_thread, index): index for index in range(N_TRIALS)}
-    for future in tqdm(as_completed(future_to_index), total=N_TRIALS):
-        try:
-            i, estimates = future.result(timeout=20)
-            estimation_arr[i,:] = estimates
-        except Exception as e:
-            print(f"Error processing event {future_to_index[future]}: {e}")
+    # n = 100
+    # arr1 = np.zeros(BATCH * n)
+    # arr2 = np.zeros(BATCH * n)
+    # for i in tqdm(range(n)):
+    #     p_agn_agn_gws, p_alt_agn_gws, p_agn_alt_gws, p_alt_alt_gws = generate_and_process_universe_realization()
+    #     arr1[int(i * BATCH):int((i+1) * BATCH)] = p_agn_agn_gws
+    #     arr2[int(i * BATCH):int((i+1) * BATCH)] = p_alt_agn_gws
+
+    # plt.figure()
+    # plt.hist(arr1 / arr2, bins=100)
+    # plt.savefig('ratio.pdf')
+    # plt.show
+
+    estimation_arr = np.zeros((N_TRIALS, N_TRUE_FAGNS))
+
+    # If you don't want to use threading, uncomment this
+    # for i in range(N_TRIALS):
+    #     _, estimation_arr[i,:] = full_analysis_likelihood_thread(i)
+
+    # If you don't want to use threading, comment this
+    with ThreadPoolExecutor(max_workers=NCPU) as executor:
+        future_to_index = {executor.submit(full_analysis_likelihood_thread, index): index for index in range(N_TRIALS)}
+        for future in tqdm(as_completed(future_to_index), total=N_TRIALS):
+            try:
+                i, estimates = future.result(timeout=20)
+                estimation_arr[i,:] = estimates
+            except Exception as e:
+                print(f"Error processing event {future_to_index[future]}: {e}")
 
 
-fagn_medians = np.median(estimation_arr, axis=0)
-q016 = np.quantile(estimation_arr, 0.16, axis=0)
-q084 = np.quantile(estimation_arr, 0.84, axis=0)
+    fagn_medians = np.median(estimation_arr, axis=0)
+    q016 = np.quantile(estimation_arr, 0.16, axis=0)
+    q084 = np.quantile(estimation_arr, 0.84, axis=0)
 
-plt.figure(figsize=(8,8))
-plt.plot(TRUE_FAGNS, fagn_medians, color='red', linewidth=3)
-plt.plot(np.linspace(0,1,100), np.linspace(0,1,100), linestyle='dashed', color='black', zorder=6, linewidth=3)
-plt.fill_between(TRUE_FAGNS, q016, q084, color='red', alpha=0.3)
-plt.xlabel(r'$f_{\rm agn, true}$')
-plt.ylabel(r'$f_{\rm agn, estim}$')
-plt.grid()
-plt.xlim(0, 1)
-plt.ylim(0, 1)
-plt.savefig('abserr.pdf')
-plt.show()
+    plt.figure(figsize=(8,8))
+    plt.plot(TRUE_FAGNS, fagn_medians, color='red', linewidth=3)
+    plt.plot(np.linspace(0,1,100), np.linspace(0,1,100), linestyle='dashed', color='black', zorder=6, linewidth=3)
+    plt.fill_between(TRUE_FAGNS, q016, q084, color='red', alpha=0.3)
+    plt.xlabel(r'$f_{\rm agn, true}$')
+    plt.ylabel(r'$f_{\rm agn, estim}$')
+    plt.grid()
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+    plt.savefig('abserr.pdf')
+    plt.show()
