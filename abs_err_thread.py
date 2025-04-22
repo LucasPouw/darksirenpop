@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import matplotlib.pyplot as plt
 from utils import uniform_shell_sampler, make_nice_plots
@@ -14,10 +15,10 @@ def dVdr_prior(r, rmax):
 
 
 ####################################################################
-GW_DIST_ERR = 10  # Absolute error
+GW_DIST_ERR = 1  # Absolute error
 RMIN = 0
 RMAX_GW = 100
-RTHRESH_GW = 100
+RTHRESH_GW = RMAX_GW
 NAGN = int(1e2)
 N_MC_SAMPS = int(1e4)
 rr = np.linspace(RMIN, RMAX_GW, 1000)
@@ -26,7 +27,7 @@ NGW_ALT = BATCH
 NGW_AGN = BATCH
 NCPU = cpu_count()
 
-N_TRIALS = 10000
+N_TRIALS = 1000
 MAX_N_FAGNS = 51
 N_TRUE_FAGNS = min(BATCH + 1, MAX_N_FAGNS)    # Cannot create more f_agn values than use_N_gws+1 and don't want to generate more than max_N_fagns
 CALC_LOGLLH_AT_N_POINTS = 1000                  # Only change if you want higher resolution, but why would you?
@@ -160,3 +161,22 @@ if __name__ == '__main__':
     plt.ylim(0, 1)
     plt.savefig('abserr.pdf')
     plt.show()
+
+    #%%
+
+    relative_estimates = estimation_arr - TRUE_FAGNS
+    q016 = np.quantile(relative_estimates, 0.16, axis=0)
+    q084 = np.quantile(relative_estimates, 0.84, axis=0)
+    plt.figure(figsize=(8,8))
+    plt.plot(TRUE_FAGNS, np.median(relative_estimates, axis=0), color='red', linewidth=3, label='median')
+    plt.plot(TRUE_FAGNS, np.mean(relative_estimates, axis=0), color='blue', linewidth=3, label='mean')
+    plt.plot(np.linspace(0,1,100), np.zeros(100), linestyle='dashed', color='black', zorder=6, linewidth=3)
+    plt.fill_between(TRUE_FAGNS, q016, q084, color='red', alpha=0.3, label=r'$68\%$ CI')
+    plt.xlabel(r'$f_{\rm agn, true}$')
+    plt.ylabel(r'$f_{\rm agn, estim} - f_{\rm agn, true}$')
+    plt.grid()
+    plt.legend()
+    plt.xlim(0, 1)
+    plt.savefig('abserr_diff.pdf')
+    plt.show()
+#%%
