@@ -1,9 +1,11 @@
+#%%
 from astropy.cosmology import z_at_value
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib as mpl
 import healpy as hp
 import os
+from scipy.spatial import cKDTree
 
 
 def make_nice_plots():
@@ -77,6 +79,29 @@ def fast_z_at_value(function, values, num=100):
     return zvals.value
 
 
+# def ckd_tree_kde_evaluation(data, evaluation_points):
+#     assert len(data) >= 1e4, 'Too few data points to justify cKDTree. Use gaussian_kde instead.'
+#     bandwidth = len(data)**(-1/5) * np.std(data)  # Scott's method (analog?)
+#     kdtree = cKDTree(data[:, None])
+#     kde_values = np.zeros_like(evaluation_points)
+#     for i, point in enumerate(evaluation_points):
+#         indices = kdtree.query_ball_point([point], bandwidth)
+#         kde_values[i] = len(indices) / (len(data) * bandwidth)
+#     return kde_values * 0.5
+
+
+def histogram_pdf(data, points):
+    assert len(data) >= 1e4, 'Too few data points to justify histogram PDF. Use gaussian_kde instead.'
+    bandwidth = len(data)**(-1/5) * np.std(data)
+    xmin = min(np.min(data), np.min(points))
+    xmax = max(np.max(data), np.max(points))
+    nbins = int((xmax - xmin) / bandwidth)
+    edges = np.linspace(xmin, xmax, nbins+1)
+    binned_data, edges = np.histogram(data, bins=edges, density=True)
+    idx = np.digitize(points, edges[:-1]) - 1
+    return binned_data[idx]
+
+
 def check_equal(a, b):
     if len(a) != len(b):
         return False
@@ -122,24 +147,77 @@ if __name__ == '__main__':
     from scipy.special import erf
     import time
     from tqdm import tqdm
+    import random
 
-    cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+    import vose
 
-    n_trials = 100
-    time_arr = np.zeros(n_trials)
-    time_arr2 = np.zeros(n_trials)
-    for i in tqdm(range(n_trials)):
-        rlum_obs = (np.random.uniform(low=0, high=100, size=1))**(1/3)
-        lumdist_arr = rlum_obs / (1 + 0.1 * np.random.normal(size=4 * int(1e5)))
+    s = int(1e5)
+    arr = np.random.normal(0, 1, size=s)
+    weights = abs(arr) / np.sum(abs(arr))
+    start = time.time()
+    for i in tqdm(range(1000)):
+        sampler = vose.Sampler(weights)
+        idx = sampler.sample(k=s)
+        v_arr = arr[idx]
+    print('vose', time.time() - start)
 
-        start = time.time()
-        vals1 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100000)
-        time_arr[i] = time.time() - start
+    start = time.time()
+    for i in tqdm(range(1000)):
+        np_arr = np.random.choice(arr, size=s, p=weights)
+    print('numpy', time.time() - start)
 
-        start = time.time()
-        vals2 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100)
-        time_arr2[i] = time.time() - start
-    print(np.mean(time_arr), np.mean(time_arr2))
+    plt.figure()
+    plt.hist(v_arr, density=True, bins=100, histtype='step')
+    plt.hist(np_arr, density=True, bins=100, histtype='step')
+    plt.show()
+
+
+
+    #%%
+
+
+    n = int(1e4)
+    p = int(1e3)
+    data = np.random.normal(size=n)
+    points = np.linspace(-5, 5, p)
+
+    start = time.time()
+    kde = stats.gaussian_kde(data)(points)
+    print('kde', time.time() - start)
+
+    # start = time.time()
+    # ckde = ckd_tree_kde_evaluation(data, points)  # Faster and adequate for n=1e4 and p=1e4, never worth it below n=1e3
+    # print('ckde', time.time() - start)
+
+    start = time.time()
+    hkde = histogram_pdf(data, points)
+    print('hkde', time.time() - start)
+
+    plt.figure()
+    plt.plot(points, kde, color='blue')
+    # plt.plot(points, ckde, color='red')
+    plt.plot(points, hkde, color='black')
+    plt.show()
+
+#%%
+
+    # cosmo = FlatLambdaCDM(H0=67.9, Om0=0.3065)
+
+    # n_trials = 100
+    # time_arr = np.zeros(n_trials)
+    # time_arr2 = np.zeros(n_trials)
+    # for i in tqdm(range(n_trials)):
+    #     rlum_obs = (np.random.uniform(low=0, high=100, size=1))**(1/3)
+    #     lumdist_arr = rlum_obs / (1 + 0.1 * np.random.normal(size=4 * int(1e5)))
+
+    #     start = time.time()
+    #     vals1 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100000)
+    #     time_arr[i] = time.time() - start
+
+    #     start = time.time()
+    #     vals2 = fast_z_at_value(cosmo.luminosity_distance, lumdist_arr * u.Mpc, num=100)
+    #     time_arr2[i] = time.time() - start
+    # print(np.mean(time_arr), np.mean(time_arr2))
     # print(vals1 - vals2)
 
     # cl = 0.999
