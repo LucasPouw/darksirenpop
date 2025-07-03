@@ -20,27 +20,28 @@ make_nice_plots()
 COSMO = DEFAULT_COSMOLOGY
 SPEED_OF_LIGHT_KMS = c.to('km/s').value
 
-USE_ONLY_REDSHIFT = False
+USE_ONLY_REDSHIFT = True
 USE_ONLY_MASS = False
-USE_MASS_AND_REDSHIFT = True
+USE_MASS_AND_REDSHIFT = False
+ASSUME_PERFECT_REDSHIFT_MEASUREMENT = True
+
+AGN_ZERROR = float(0.05)  # Absolute error for now, same for all AGN, posterior = Gaussian * dVdz prior / norm TODO: Verify that this likelihood is fine for Quaia
+# AGN_ZERROR = int(0)
 
 AGN_MASS_MODEL = PrimaryMass_gaussian()  # PrimaryMass_gaussian(mu_g=60, sigma_g=4)
 ALT_MASS_MODEL = PrimaryMass_powerlaw_gaussian()  # PrimaryMass_powerlaw_gaussian(lambda_peak=0, alpha=1.4)
 PRIMARY_MASS_ERROR = 40  # Solar masses
-PRIMARY_MASS_INTEGRAL_AXIS = np.geomspace(1e-4, 200, 8192*2+1)
+PRIMARY_MASS_INTEGRAL_AXIS = np.geomspace(1e-4, 200, 8192*2+1)  # TODO: Make this not hard-coded, it currently only works because of the specific chosen populations
 
 ZMIN = 1e-4
 ZMAX = 1.5  # p_rate(z > ZMAX) = 0
-GW_DIST_ERR = 0.05  # Relative error
+GW_DIST_ERR = 0.2  # Relative error
 
 LUMDIST_MIN = COSMO.luminosity_distance(ZMIN).value
 LUMDIST_MAX = COSMO.luminosity_distance(ZMAX).value
 
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value  # Maximum comoving distance in Mpc
-
-AGN_ZERROR = float(0.05)  # Absolute error for now, same for all, then Gaussian posterior
-# AGN_ZERROR = int(0)
 
 ### Redshift integral resolutions strongly influence accuracy of results, this is the first place to look when encountering biases!!! ###
 # LOS_ZPRIOR_Z_ARRAY = np.geomspace(ZMIN, ZMAX, 8193)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
@@ -69,9 +70,9 @@ NAGN = int( np.ceil(AGN_NUMDENS * VOLUME) )
 if USE_ONLY_MASS:
     fname = f'posteriors_BATCH_{BATCH}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}'
 elif USE_ONLY_REDSHIFT:
-    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}'
+    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_ASSUMENOERR_{ASSUME_PERFECT_REDSHIFT_MEASUREMENT}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}'
 elif USE_MASS_AND_REDSHIFT:
-    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}'
+    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_ASSUMENOERR_{ASSUME_PERFECT_REDSHIFT_MEASUREMENT}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}'
 
 NCPU = cpu_count()
 # NCPU = 1
@@ -136,30 +137,6 @@ def unnormed_redshift_distribution(z, dobs, sigma):
     return unnormed_lumdist_distribution(dl, dobs, sigma) / dDL_dz
 
 
-### Get normalizations of redshift posterior -> Romberg untested, but unused, should still work though lol ###
-# n_norms = 10000
-# trial_lumdist = np.linspace(LUMDIST_MIN, 2 * LUMDIST_MAX, n_norms)
-# try:
-#     znorms = np.load(os.path.join(sys.path[0], f'znorms_n_norms_{n_norms}.npy'))
-# except:
-#     redshift_norm_z_axis = np.geomspace(ZMIN / 10, 10 * ZMAX, 513)
-#     znorms = np.zeros(n_norms)
-#     print('Precalculating redshift posterior normalizations...')
-#     for i, dobs in tqdm(enumerate(trial_lumdist)):
-#         func = lambda x: unnormed_redshift_distribution(x, dobs, sigma=GW_DIST_ERR) * x * np.log(10)  # Compensation for integral on log axis
-#         znorms[i] = romb(y=func(redshift_norm_z_axis), dx=np.diff(np.log10(redshift_norm_z_axis))[0])
-#     np.save(os.path.join(sys.path[0], f'znorms_n_norms_{n_norms}.npy'), znorms)
-    
-# ZNORMS_INTERP = CubicSpline(trial_lumdist, znorms)
-
-# def redshift_distribution(z, dobs):
-#     "Normalized redshift posterior"
-#     func = lambda x: unnormed_redshift_distribution(x, dobs, sigma=GW_DIST_ERR)
-#     norm = ZNORMS_INTERP(dobs)
-#     return func(z) / norm
-#################################################
-
-
 def gw_redshift_posterior(z, dobs):
     func2norm = lambda x: unnormed_redshift_distribution(x, dobs, sigma=GW_DIST_ERR) * x * np.log(10)
     norm = romb(y=func2norm(ZNORM_ROMB_AXIS), dx=np.diff(np.log10(ZNORM_ROMB_AXIS))[0])
@@ -174,7 +151,7 @@ def process_gw_redshift(rlum_obs, agn_z_obs):
     Calculates the evidence for hypothesis x in {agn, alt} as S_x = int p(z|d) p_x(z) dz = int p(z|d) p_x(z) z log(10) d(log10 z)
     """
 
-    if not AGN_ZERROR:
+    if ASSUME_PERFECT_REDSHIFT_MEASUREMENT:
         S_agn = np.sum( gw_redshift_posterior(z=agn_z_obs, dobs=rlum_obs[:,np.newaxis]), axis=1 ) / NAGN
 
     else:
