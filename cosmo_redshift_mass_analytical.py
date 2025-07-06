@@ -23,14 +23,16 @@ SPEED_OF_LIGHT_KMS = c.to('km/s').value
 USE_ONLY_REDSHIFT = True
 USE_ONLY_MASS = False
 USE_MASS_AND_REDSHIFT = False
-ASSUME_PERFECT_REDSHIFT_MEASUREMENT = True
+ASSUME_PERFECT_REDSHIFT_MEASUREMENT = False
 
 AGN_ZERROR = float(0.05)  # Absolute error for now, same for all AGN, posterior = Gaussian * dVdz prior / norm TODO: Verify that this likelihood is fine for Quaia
 # AGN_ZERROR = int(0)
 
-AGN_MASS_MODEL = PrimaryMass_gaussian()  # PrimaryMass_gaussian(mu_g=60, sigma_g=4)
-ALT_MASS_MODEL = PrimaryMass_powerlaw_gaussian()  # PrimaryMass_powerlaw_gaussian(lambda_peak=0, alpha=1.4)
-PRIMARY_MASS_ERROR = 40  # Solar masses
+AGN_MASS_MODEL = PrimaryMass_gaussian(mu_g=25)  # PrimaryMass_gaussian(mu_g=60, sigma_g=4)
+ALT_MASS_MODEL = PrimaryMass_gaussian(mu_g=30)  #PrimaryMass_powerlaw_gaussian()  # PrimaryMass_powerlaw_gaussian(lambda_peak=0, alpha=1.4)
+AGNMODELSTR = 'G'
+ALTMODELSTR = 'G'
+PRIMARY_MASS_ERROR = 10  # Solar masses
 PRIMARY_MASS_INTEGRAL_AXIS = np.geomspace(1e-4, 200, 8192*2+1)  # TODO: Make this not hard-coded, it currently only works because of the specific chosen populations
 
 ZMIN = 1e-4
@@ -59,7 +61,7 @@ ZNORM_ROMB_AXIS = np.geomspace(ZMIN / 10, 10 * ZMAX, 8192*2+1)  # Normalizing th
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
 AGN_NUMDENS = 100 / VOLUME
 BATCH = int(100)
-N_TRIALS = 10
+N_TRIALS = 100
 MAX_N_FAGNS = 21
 CALC_LOGLLH_AT_N_POINTS = 1000
 # GW_CHUNK = 100  # Optimized for my own system - vectorize operations for this many GWs 
@@ -68,16 +70,16 @@ CALC_LOGLLH_AT_N_POINTS = 1000
 NAGN = int( np.ceil(AGN_NUMDENS * VOLUME) )
 
 if USE_ONLY_MASS:
-    fname = f'posteriors_BATCH_{BATCH}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}'
+    fname = f'posteriors_BATCH_{BATCH}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}_AGNMODEL_{AGNMODELSTR}_ALTMODEL_{ALTMODELSTR}'
 elif USE_ONLY_REDSHIFT:
     fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_ASSUMENOERR_{ASSUME_PERFECT_REDSHIFT_MEASUREMENT}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}'
 elif USE_MASS_AND_REDSHIFT:
-    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_ASSUMENOERR_{ASSUME_PERFECT_REDSHIFT_MEASUREMENT}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}'
+    fname = f'posteriors_AGNZERROR_{AGN_ZERROR}_ASSUMENOERR_{ASSUME_PERFECT_REDSHIFT_MEASUREMENT}_BATCH_{BATCH}_GWDISTERR_{GW_DIST_ERR}_ZMAX_{ZMAX}_NAGN_{NAGN}_PRIMARY_MASS_ERROR_{PRIMARY_MASS_ERROR}_AGNMODEL_{AGNMODELSTR}_ALTMODEL_{ALTMODELSTR}'
 
-NCPU = cpu_count()
-# NCPU = 1
+# NCPU = cpu_count()
+NCPU = 1
 
-# assert NAGN >= BATCH, f'Every AGN-origin GW must come from a unique AGN. Got {NAGN} AGN and {BATCH} AGN-origin GWs.'
+assert NAGN >= BATCH, f'Every AGN-origin GW must come from a unique AGN. Got {NAGN} AGN and {BATCH} AGN-origin GWs.'
 print(f'#AGN is rounded from {AGN_NUMDENS * VOLUME} to {NAGN}, giving a number density of {NAGN / VOLUME:.3e}. Target was {AGN_NUMDENS:.3e}.')
 NGW_ALT = BATCH
 NGW_AGN = BATCH
@@ -114,15 +116,24 @@ def dVdz_unnorm(z):
 
 
 func = lambda z: dVdz_unnorm(z)
-DVDZ_NORM = quad(func, ZMIN, ZMAX)[0]  # Normalize up to ZMAX, since p_rate(z > ZMAX) = 0. TODO: Could maybe change to Romberg later
+DVDZ_NORM_POP = quad(func, ZMIN, ZMAX)[0]  # Normalize up to ZMAX, since p_rate(z > ZMAX) = 0. TODO: Could maybe change to Romberg later
+# DVDZ_NORM_GW = quad(func, ZMIN, ZMAX * 10)[0]
 
 
-def dVdz_prior(z):
+def dVdz_populationprior(z):
     z = np.atleast_1d(z)
     result = np.zeros_like(z)
     below_thresh = (z < ZMAX) & (z > ZMIN)
-    result[below_thresh] = dVdz_unnorm(z[below_thresh]) / DVDZ_NORM
+    result[below_thresh] = dVdz_unnorm(z[below_thresh]) / DVDZ_NORM_POP
     return result
+
+
+# def dVdz_GWprior(z):
+#     z = np.atleast_1d(z)
+#     result = np.zeros_like(z)
+#     below_thresh = (z < ZMAX * 10) & (z > ZMIN)
+#     result[below_thresh] = dVdz_unnorm(z[below_thresh]) / DVDZ_NORM_GW
+#     return result
 
 
 def unnormed_lumdist_distribution(d, dobs, sigma):
@@ -138,12 +149,16 @@ def unnormed_redshift_distribution(z, dobs, sigma):
 
 
 def gw_redshift_posterior(z, dobs):
-    func2norm = lambda x: unnormed_redshift_distribution(x, dobs, sigma=GW_DIST_ERR) * x * np.log(10)
+    # TODO: add dVdz_prior to redshift posterior. Did single naive test with 30% GW error, seemed to cause upwards bias.
+    # NOTE: Could be integration error due to wrong integration bounds?. Oh hm or it is because of the z in [0, 1.5] range, while the posterior should extend past 1.5...
+    # NOTE: Doesn't seem to work either, let it go for now
+
+    func2norm = lambda x: unnormed_redshift_distribution(x, dobs, sigma=GW_DIST_ERR) * x * np.log(10)  # * dVdz_GWprior(x)
     norm = romb(y=func2norm(ZNORM_ROMB_AXIS), dx=np.diff(np.log10(ZNORM_ROMB_AXIS))[0])
     try:
-        return unnormed_redshift_distribution(z, dobs, sigma=GW_DIST_ERR) / norm[:,np.newaxis]
+        return unnormed_redshift_distribution(z, dobs, sigma=GW_DIST_ERR) / norm[:,np.newaxis]  # * dVdz_GWprior(z)
     except IndexError:  # I hate this, but it happens when plotting diagnostics for a single dobs
-        return unnormed_redshift_distribution(z, dobs, sigma=GW_DIST_ERR) / norm
+        return unnormed_redshift_distribution(z, dobs, sigma=GW_DIST_ERR) / norm  # * dVdz_GWprior(z)
 
 
 def process_gw_redshift(rlum_obs, agn_z_obs):
@@ -155,40 +170,52 @@ def process_gw_redshift(rlum_obs, agn_z_obs):
         S_agn = np.sum( gw_redshift_posterior(z=agn_z_obs, dobs=rlum_obs[:,np.newaxis]), axis=1 ) / NAGN
 
     else:
-        agn_posteriors = gaussian_unnorm(x=LOS_ZPRIOR_Z_ARRAY, mu=agn_z_obs[:,np.newaxis], sigma=AGN_ZERROR) * dVdz_prior(LOS_ZPRIOR_Z_ARRAY)
+        agn_posteriors = gaussian_unnorm(x=LOS_ZPRIOR_Z_ARRAY, mu=agn_z_obs[:,np.newaxis], sigma=AGN_ZERROR) * dVdz_populationprior(LOS_ZPRIOR_Z_ARRAY)
         norm = romb(y=agn_posteriors * LOS_ZPRIOR_Z_ARRAY * np.log(10),
                     dx=np.diff(np.log10(LOS_ZPRIOR_Z_ARRAY))[0])
         LOS_zprior = np.sum(agn_posteriors / norm[:,np.newaxis], axis=0) / NAGN
 
-        # LOS_zprior = np.zeros_like(LOS_ZPRIOR_Z_ARRAY)  # p_agn(z)
-        # for z in obs_agn_z:  # Not vectorized, because NAGN * len(LOS_ZPRIOR_Z_ARRAY) could be large
-        #     agn_posterior = gaussian_unnorm(x=LOS_ZPRIOR_Z_ARRAY, mu=z, sigma=AGN_ZERROR) * dVdz_prior(LOS_ZPRIOR_Z_ARRAY)
-        #     norm = romb(y=agn_posterior * LOS_ZPRIOR_Z_ARRAY * np.log(10),
-        #                 dx=np.diff(np.log10(LOS_ZPRIOR_Z_ARRAY))[0])
-        #     LOS_zprior += agn_posterior / norm  # Assume Gaussian redshift posteriors
-        # LOS_zprior /= NAGN  # Normalize
+        LOS_zprior = np.zeros_like(LOS_ZPRIOR_Z_ARRAY)  # p_agn(z)
+        for z in agn_z_obs:  # Not vectorized, because NAGN * len(LOS_ZPRIOR_Z_ARRAY) could be large
+            agn_posterior = gaussian_unnorm(x=LOS_ZPRIOR_Z_ARRAY, mu=z, sigma=AGN_ZERROR) * dVdz_populationprior(LOS_ZPRIOR_Z_ARRAY)
+            norm = romb(y=agn_posterior * LOS_ZPRIOR_Z_ARRAY * np.log(10),
+                        dx=np.diff(np.log10(LOS_ZPRIOR_Z_ARRAY))[0])
+            LOS_zprior += agn_posterior / norm  # Assume Gaussian redshift posteriors
+        LOS_zprior /= NAGN  # Normalize
 
         # import matplotlib.pyplot as plt
         # for rlum in rlum_obs:
-        #     plt.figure()
-        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, redshift_distribution(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum) * LOS_zprior, color='black', label=r'$p(z|d)p_{\rm agn}(z)$', linewidth=3)
-        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, redshift_distribution(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum) * dVdz_prior(LOS_ZPRIOR_Z_ARRAY), color='gray', label=r'$p(z|d)p_{\rm alt}(z)$', linewidth=3)
-        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, redshift_distribution(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum), color='green', label=r'$p(z|d)$')
-        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, LOS_zprior, label=r'$p_{\rm agn}(z)$', color='blue')
-        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, dVdz_prior(LOS_ZPRIOR_Z_ARRAY), label=r'$p_{\rm alt}(z)$', color='red')
-        #     plt.legend()
-        #     plt.xlabel('Redshift')
+        #     rlum = COSMO.luminosity_distance(0.55).value
+        #     fig, pdf_ax = plt.subplots(figsize=(8,6))
+        #     pop_ax = pdf_ax.twinx()
+        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, gw_redshift_posterior(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum) * LOS_zprior, color='orangered', label=r'$p(z|d)p_{\rm agn}(z)$', linewidth=3, linestyle='dashed')
+        #     plt.plot(LOS_ZPRIOR_Z_ARRAY, gw_redshift_posterior(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum) * dVdz_populationprior(LOS_ZPRIOR_Z_ARRAY), color='teal', label=r'$p(z|d)p_{\rm alt}(z)$', linewidth=3, linestyle='dashed')
+        #     pdf_ax.plot(LOS_ZPRIOR_Z_ARRAY, gw_redshift_posterior(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum), color='goldenrod', label=r'$p(z|d)$', linewidth=3)
+        #     pdf_ax.plot(LOS_ZPRIOR_Z_ARRAY, LOS_zprior, label=r'$p_{\rm agn}(z)$', color='crimson', linewidth=3)
+        #     pdf_ax.plot(LOS_ZPRIOR_Z_ARRAY, dVdz_populationprior(LOS_ZPRIOR_Z_ARRAY), label=r'$p_{\rm alt}(z)$', color='indigo', linewidth=3)
+            
+        #     pdf_ax.set_xlabel('Redshift')
+        #     pdf_ax.set_ylabel('Probability density')
+        #     pop_ax.set_ylabel(r'$p(z|d)p_{\rm pop}(z)$')
+
+        #     pdf_ax.set_xlim(0, 1.5)
+        #     pdf_ax.set_ylim(0, 5)
+        #     pop_ax.set_ylim(0, 5)
+
+        #     lines1, labels1 = pdf_ax.get_legend_handles_labels()
+        #     lines2, labels2 = pop_ax.get_legend_handles_labels()
+        #     pdf_ax.legend(lines1 + lines2, labels1 + labels2, loc='upper right', framealpha=1)
             
         #     # plt.title(f'Sagn={p:.3f}, Salt={p_alt_integral(rlum):.3f}')
 
-        #     plt.savefig('loszprior.pdf', bbox_inches='tight')
+        #     plt.savefig('redshift_populations.pdf', bbox_inches='tight')
         #     time.sleep(15)
         #     plt.close()
         
         S_agn = romb(gw_redshift_posterior(z=LOS_ZPRIOR_Z_ARRAY, dobs=rlum_obs[:,np.newaxis]) * LOS_zprior * LOS_ZPRIOR_Z_ARRAY * np.log(10), 
                      dx=np.diff(np.log10(LOS_ZPRIOR_Z_ARRAY))[0])
     
-    S_alt = romb(y=gw_redshift_posterior(S_ALT_Z_INTEGRAL_AX, rlum_obs[:,np.newaxis]) * dVdz_prior(S_ALT_Z_INTEGRAL_AX) * S_ALT_Z_INTEGRAL_AX * np.log(10),
+    S_alt = romb(y=gw_redshift_posterior(S_ALT_Z_INTEGRAL_AX, rlum_obs[:,np.newaxis]) * dVdz_populationprior(S_ALT_Z_INTEGRAL_AX) * S_ALT_Z_INTEGRAL_AX * np.log(10),
                  dx=np.diff(np.log10(S_ALT_Z_INTEGRAL_AX))[0])
     
     return S_agn, S_alt

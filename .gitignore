@@ -5,6 +5,5 @@ test*
 *.npy
 old*
 *.json
-*.pdf
 *env
 dump*
