@@ -7,3 +7,6 @@ old*
 *.json
 *env
 dump*
+catalogs_moc
+posterior_samples_moc
+skymap_0*
