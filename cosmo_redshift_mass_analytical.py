@@ -37,10 +37,10 @@ Are my posterior samples correct? No induced prior (Jacobian) that needs to be a
 COSMO = DEFAULT_COSMOLOGY
 SPEED_OF_LIGHT_KMS = c.to('km/s').value
 
-MAKE_SKYMAPS = False  # Only implemented in combination with USE_ONLY_3DLOC = True
-SKYMAP_DIR = './skymaps_moc'
-POST_SAMPS_DIR = './posterior_samples_moc'
-CAT_DIR = './catalogs_moc'
+MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
+SKYMAP_DIR = './skymaps_moc_200'
+POST_SAMPS_DIR = './posterior_samples_moc_200'
+CAT_DIR = './catalogs_moc_200'
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True
@@ -90,8 +90,8 @@ S_ALT_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, 8192*2+1)
 ZNORM_ROMB_AXIS = np.geomspace(ZMIN / 10, 10 * ZMAX, 8192*2+1)  # Normalizing the GW redshift posterior is done numerically, this is the range on which that happens.
 
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
-AGN_NUMDENS = 100 / VOLUME
-BATCH = int(40)
+AGN_NUMDENS = 200 / VOLUME
+BATCH = int(200)
 N_TRIALS = 1
 MAX_N_FAGNS = 6
 CALC_LOGLLH_AT_N_POINTS = 1000
@@ -528,10 +528,10 @@ def full_analysis_likelihood_thread(trial_idx):
     
     log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
     for fagn_idx, fagn_true in enumerate(TRUE_FAGNS):
-        fagn_realized = np.random.binomial(BATCH, fagn_true) / BATCH  # Observed f_agn fluctuates around the true value
-        # fagn_realized = fagn_true
-        # print('FAGN = FAGN_TRUE')
-        # print(f"fagn realized: {fagn_realized}, fagn true: {fagn_true}")
+        # fagn_realized = np.random.binomial(BATCH, fagn_true) / BATCH  # Observed f_agn fluctuates around the true value
+        fagn_realized = fagn_true
+        print('FAGN = FAGN_TRUE')
+        print(f"fagn realized: {fagn_realized}, fagn true: {fagn_true}")
         S_agn, S_alt = generate_and_process_universe_realization(fagn=fagn_realized, fagn_idx=fagn_idx, trial_idx=trial_idx)
         loglike = np.log(S_agn[:,None] * SKYMAP_CL * LOG_LLH_X_AX[None,:] + S_alt[:,None] * (1 - SKYMAP_CL * LOG_LLH_X_AX[None,:]))
         
