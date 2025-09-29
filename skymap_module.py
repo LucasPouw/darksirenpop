@@ -61,9 +61,9 @@ AGN_POSTERIOR_NORM_AX = np.geomspace(ZMIN, AGN_ZMAX, int(8192/4)+1)
 
 
 def sample_spherical_angles(n_samps=1):
-        theta = np.arccos(np.random.uniform(size=n_samps, low=-1, high=1))  # Cosine is uniformly distributed between -1 and 1 -> cos between 0 and pi
-        phi = 2 * np.pi * np.random.uniform(size=n_samps)  # Draws phi from 0 to 2pi
-        return theta, phi
+    theta = np.arccos(np.random.uniform(size=n_samps, low=-1, high=1))  # Cosine is uniformly distributed between -1 and 1 -> cos between 0 and pi
+    phi = 2 * np.pi * np.random.uniform(size=n_samps)  # Draws phi from 0 to 2pi
+    return theta, phi
 
 
 def uniform_shell_sampler(rmin, rmax, n_samps):
@@ -176,332 +176,332 @@ if __name__ == '__main__':
 
     ############ REAL DATA ############
 
-    # Load Quaia
-    if INDICATOR == 'MOCK':
-        df = pd.read_csv("/net/vdesk/data2/pouw/MRP/data/galaxy-catalogs/quaia/mock_quaia.csv")
-    else:
-        df = pd.read_csv("/net/vdesk/data2/pouw/MRP/data/galaxy-catalogs/quaia/Quaia_z15.csv")
-    cols = ["redshift_quaia", "redshift_quaia_err", "ra", "dec", "b", "loglbol_corr"]
-    data = df[cols]
+    # # Load Quaia
+    # if INDICATOR == 'MOCK':
+    #     df = pd.read_csv("/net/vdesk/data2/pouw/MRP/data/galaxy-catalogs/quaia/mock_quaia.csv")
+    # else:
+    #     df = pd.read_csv("/net/vdesk/data2/pouw/MRP/data/galaxy-catalogs/quaia/Quaia_z15.csv")
+    # cols = ["redshift_quaia", "redshift_quaia_err", "ra", "dec", "b", "loglbol_corr"]
+    # data = df[cols]
 
-    b              = data["b"].to_numpy()
-    loglbol_corr   = data["loglbol_corr"].to_numpy()
+    # b              = data["b"].to_numpy()
+    # loglbol_corr   = data["loglbol_corr"].to_numpy()
 
-    outside_galactic_plane = np.logical_or((b > 10), (b < -10))
-    # outside_galactic_plane = np.ones_like(b, dtype=bool)
-    above_lbol_thresh = loglbol_corr >= LOG_LBOL_THRESH
+    # outside_galactic_plane = np.logical_or((b > 10), (b < -10))
+    # # outside_galactic_plane = np.ones_like(b, dtype=bool)
+    # above_lbol_thresh = loglbol_corr >= LOG_LBOL_THRESH
 
-    b = b[outside_galactic_plane & above_lbol_thresh]
-    loglbol_corr = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
-    agn_redshift       = data["redshift_quaia"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
-    agn_redshift_err   = data["redshift_quaia_err"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
-    agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
-    agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
-    agn_rlum = COSMO.luminosity_distance(agn_redshift).value
+    # b = b[outside_galactic_plane & above_lbol_thresh]
+    # loglbol_corr = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
+    # agn_redshift       = data["redshift_quaia"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+    # agn_redshift_err   = data["redshift_quaia_err"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+    # agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+    # agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+    # agn_rlum = COSMO.luminosity_distance(agn_redshift).value
 
-    print(f'FOUND A TOTAL OF {len(agn_ra)} AGN')
+    # print(f'FOUND A TOTAL OF {len(agn_ra)} AGN')
 
-    # Make completeness map that masks out the galactic plane
-    cmap_path = "completeness_map.fits"
-    npix = hp.nside2npix(CMAP_NSIDE)
-    theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
-    map_coord = SkyCoord(phi * u.rad, (np.pi * 0.5 - theta) * u.rad)
-    map_b = map_coord.galactic.b.degree
-    outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
-    values = np.ones(npix)
-    values[~outside_galactic_plane_pix] = 0
+    # # Make completeness map that masks out the galactic plane
+    # cmap_path = "completeness_map.fits"
+    # npix = hp.nside2npix(CMAP_NSIDE)
+    # theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
+    # map_coord = SkyCoord(phi * u.rad, (np.pi * 0.5 - theta) * u.rad)
+    # map_b = map_coord.galactic.b.degree
+    # outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
+    # values = np.ones(npix)
+    # values[~outside_galactic_plane_pix] = 0
 
-    hp.write_map(cmap_path, values, nest=True, dtype=np.float32, overwrite=True)
-    completeness_map = hp.read_map("completeness_map.fits", nest=True)
+    # hp.write_map(cmap_path, values, nest=True, dtype=np.float32, overwrite=True)
+    # completeness_map = hp.read_map("completeness_map.fits", nest=True)
 
-    # For now independently, the completeness varies with redshift
-    c_per_zbin = quaia_c_vals[:, threshold_map[str(LOG_LBOL_THRESH)]]
+    # # For now independently, the completeness varies with redshift
+    # c_per_zbin = quaia_c_vals[:, threshold_map[str(LOG_LBOL_THRESH)]]
 
 
-    # Precompute AGN posteriors
-    quaia_posterior_path = f'{INDICATOR}_agn_posteriors_precompute_quaia_lumthresh_{LOG_LBOL_THRESH}.hdf5'
-    if not os.path.exists(quaia_posterior_path):
-        compute_and_save_posteriors_hdf5(quaia_posterior_path, 
-                                        agn_redshift, 
-                                        agn_redshift_err, 
-                                        AGN_POSTERIOR_NORM_AX,
-                                        AGN_ZMAX)
+    # # Precompute AGN posteriors
+    # quaia_posterior_path = f'{INDICATOR}_agn_posteriors_precompute_quaia_lumthresh_{LOG_LBOL_THRESH}.hdf5'
+    # if not os.path.exists(quaia_posterior_path):
+    #     compute_and_save_posteriors_hdf5(quaia_posterior_path, 
+    #                                     agn_redshift, 
+    #                                     agn_redshift_err, 
+    #                                     AGN_POSTERIOR_NORM_AX,
+    #                                     AGN_ZMAX)
         
-    # Get skymap paths
-    with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/skymaps_mixed_or_xphm_gwtc3.json", "r") as f:
-        gw_paths = json.load(f)
-    gw_ids = list(gw_paths.keys())
+    # # Get skymap paths
+    # with open("/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/jsons/skymaps_mixed_or_xphm_gwtc3.json", "r") as f:
+    #     gw_paths = json.load(f)
+    # gw_ids = list(gw_paths.keys())
     
-    S_agn_cw_dict = {}
-    S_alt_cw_dict = {}
-    S_alt_dict = {}
-    for i, gw_id in enumerate(gw_ids):
-        filename = gw_paths[gw_id]
-        skymap = read_sky_map(filename, moc=True)
-        print(f'\nLoaded file: {filename}')
+    # S_agn_cw_dict = {}
+    # S_alt_cw_dict = {}
+    # S_alt_dict = {}
+    # for i, gw_id in enumerate(gw_ids):
+    #     filename = gw_paths[gw_id]
+    #     skymap = read_sky_map(filename, moc=True)
+    #     print(f'\nLoaded file: {filename}')
 
-        # This function calculates the evidence for each hypothesis by integrating in redshift-space
-        sagn_cw, salt_cw, salt = crossmatch(posterior_path=quaia_posterior_path,
-                                            sky_map=skymap,
-                                            completeness_map=completeness_map,
-                                            completeness_zedges=np.array(z_edges),
-                                            completeness_zvals=np.array(c_per_zbin),
-                                            agn_ra=agn_ra, 
-                                            agn_dec=agn_dec, 
-                                            agn_lumdist=agn_rlum, 
-                                            agn_redshift=agn_redshift,
-                                            agn_redshift_err=agn_redshift_err,
-                                            skymap_cl=SKYMAP_CL,
-                                            gw_zcut=ZMAX,
-                                            s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX, 
-                                            s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,
-                                            assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT)
+    #     # This function calculates the evidence for each hypothesis by integrating in redshift-space
+    #     sagn_cw, salt_cw, salt = crossmatch(posterior_path=quaia_posterior_path,
+    #                                         sky_map=skymap,
+    #                                         completeness_map=completeness_map,
+    #                                         completeness_zedges=np.array(z_edges),
+    #                                         completeness_zvals=np.array(c_per_zbin),
+    #                                         agn_ra=agn_ra, 
+    #                                         agn_dec=agn_dec, 
+    #                                         agn_lumdist=agn_rlum, 
+    #                                         agn_redshift=agn_redshift,
+    #                                         agn_redshift_err=agn_redshift_err,
+    #                                         skymap_cl=SKYMAP_CL,
+    #                                         gw_zcut=ZMAX,
+    #                                         s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX, 
+    #                                         s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,
+    #                                         assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT)
 
-        # sagn_cw, salt_cw, salt = 0.5, 0.6, 1
+    #     # sagn_cw, salt_cw, salt = 0.5, 0.6, 1
         
-        S_agn_cw_dict[gw_id] = sagn_cw
-        S_alt_cw_dict[gw_id] = salt_cw
-        S_alt_dict[gw_id] = salt
+    #     S_agn_cw_dict[gw_id] = sagn_cw
+    #     S_alt_cw_dict[gw_id] = salt_cw
+    #     S_alt_dict[gw_id] = salt
 
-        print(f"\n({i+1}/{len(gw_ids)}) {gw_id}: CW S_agn={sagn_cw}, CW S_alt={salt_cw}\n")
-        if sagn_cw > salt_cw:
-            print('!!! HIGHER AGN PROB !!!')
+    #     print(f"\n({i+1}/{len(gw_ids)}) {gw_id}: CW S_agn={sagn_cw}, CW S_alt={salt_cw}\n")
+    #     if sagn_cw > salt_cw:
+    #         print('!!! HIGHER AGN PROB !!!')
 
-    np.save(f'{INDICATOR}_s_agn_cw_dict.npy', S_agn_cw_dict)
-    np.save(f'{INDICATOR}_s_alt_cw_dict.npy', S_alt_cw_dict)
-    np.save(f'{INDICATOR}_s_alt_dict.npy', S_alt_dict)
+    # np.save(f'{INDICATOR}_s_agn_cw_dict.npy', S_agn_cw_dict)
+    # np.save(f'{INDICATOR}_s_alt_cw_dict.npy', S_alt_cw_dict)
+    # np.save(f'{INDICATOR}_s_alt_dict.npy', S_alt_dict)
 
-    S_agn_cw = np.array([S_agn_cw_dict[gw_id] for gw_id in gw_ids])
-    S_alt_cw = np.array([S_alt_cw_dict[gw_id] for gw_id in gw_ids])
-    S_alt = np.array([S_alt_dict[gw_id] for gw_id in gw_ids])
+    # S_agn_cw = np.array([S_agn_cw_dict[gw_id] for gw_id in gw_ids])
+    # S_alt_cw = np.array([S_alt_cw_dict[gw_id] for gw_id in gw_ids])
+    # S_alt = np.array([S_alt_dict[gw_id] for gw_id in gw_ids])
 
-    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
-    log_llh = np.sum(loglike, axis=0)  # sum over all GWs
-    posterior = log_llh
+    # loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+    # log_llh = np.sum(loglike, axis=0)  # sum over all GWs
+    # posterior = log_llh
 
-    posterior -= np.max(posterior)
-    pdf = np.exp(posterior)
-    norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
-    pdf = pdf / norm
+    # posterior -= np.max(posterior)
+    # pdf = np.exp(posterior)
+    # norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
+    # pdf = pdf / norm
 
-    plt.figure()
-    plt.plot(LOG_LLH_X_AX, pdf)
-    plt.savefig(f'{INDICATOR}_real_posterior_lumthresh_{LOG_LBOL_THRESH}.pdf', bbox_inches='tight')
-    plt.close()
+    # plt.figure()
+    # plt.plot(LOG_LLH_X_AX, pdf)
+    # plt.savefig(f'{INDICATOR}_real_posterior_lumthresh_{LOG_LBOL_THRESH}.pdf', bbox_inches='tight')
+    # plt.close()
 
-    np.save(os.path.join(sys.path[0], posterior_fname), posterior)
+    # np.save(os.path.join(sys.path[0], posterior_fname), posterior)
     
     ####################################
     
 
-    # if AGN_ZERROR == 0:
-    #     assert ASSUME_PERFECT_REDSHIFT == True, 'Cannot have zero redshift error and not assume a perfect measurement.'
+    if AGN_ZERROR == 0:
+        assert ASSUME_PERFECT_REDSHIFT == True, 'Cannot have zero redshift error and not assume a perfect measurement.'
 
 
-    # N_TRIALS = 1
-    # posteriors = np.zeros((N_TRIALS, CALC_LOGLLH_AT_N_POINTS, N_TRUE_FAGNS))
-    # for trial_idx in range(N_TRIALS):
+    N_TRIALS = 1
+    posteriors = np.zeros((N_TRIALS, CALC_LOGLLH_AT_N_POINTS, N_TRUE_FAGNS))
+    for trial_idx in range(N_TRIALS):
 
-    #     log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-    #     for fagn_idx in range(N_TRUE_FAGNS):
+        log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
+        for fagn_idx in range(N_TRUE_FAGNS):
 
-    #         # fagn_idx = 1
+            # fagn_idx = 1
 
-    #         if fagn_idx <= 3:
-    #             DIRECTORY_ID = 'moc_200'
-    #             BATCH = 200
-    #         else:
-    #             DIRECTORY_ID = 'moc'
-    #             BATCH = 40
+            if fagn_idx <= 2:
+                DIRECTORY_ID = 'moc_200'
+                BATCH = 200
+            else:
+                DIRECTORY_ID = 'moc'
+                BATCH = 40
 
-    #         with h5py.File(f'/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/catalogs_{DIRECTORY_ID}/mockcat_0_{fagn_idx}.hdf5', 'r') as catalog:
+            with h5py.File(f'/home/lucas/Documents/PhD/catalogs_{DIRECTORY_ID}/mockcat_0_{fagn_idx}.hdf5', 'r') as catalog:
                 
-    #             agn_ra = catalog['ra'][()]
-    #             agn_dec = catalog['dec'][()]
-    #             agn_rcom = catalog['comoving_distance'][()]
+                agn_ra = catalog['ra'][()]
+                agn_dec = catalog['dec'][()]
+                agn_rcom = catalog['comoving_distance'][()]
 
-    #             ### FOR TESTING, ADD UNCORRELATED AGN TO THE CATALOG: S_AGN -> S_ALT SHOULD BE SEEN!! ###
-    #             new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, 99800)
-    #             agn_ra = np.append(agn_ra, new_phi)
-    #             agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
-    #             agn_rcom = np.append(agn_rcom, new_rcom)
-    #             #########################################################
+                ### FOR TESTING, ADD UNCORRELATED AGN TO THE CATALOG: S_AGN -> S_ALT SHOULD BE SEEN!! ###
+                new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, 99800)
+                agn_ra = np.append(agn_ra, new_phi)
+                agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+                agn_rcom = np.append(agn_rcom, new_rcom)
+                #########################################################
 
-    #             true_agn_redshift = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
+                true_agn_redshift = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
 
-    #             agn_redshift_err = np.tile(AGN_ZERROR, len(agn_ra))
+                agn_redshift_err = np.tile(AGN_ZERROR, len(agn_ra))
 
-    #             if not AGN_ZERROR:
-    #                 obs_agn_redshift = true_agn_redshift
-    #             else:
-    #                 print('Scattering AGN!')
-    #                 obs_agn_redshift = stats.truncnorm.rvs(size=len(agn_ra), 
-    #                                                        a=(ZMIN - true_agn_redshift) / agn_redshift_err, 
-    #                                                        b=(np.inf - true_agn_redshift) / agn_redshift_err, 
-    #                                                        loc=true_agn_redshift, 
-    #                                                        scale=agn_redshift_err)  # Or a Gaussian: np.random.normal(loc=true_agn_redshift, scale=agn_redshift_err, size=len(agn_ra))
+                if not AGN_ZERROR:
+                    obs_agn_redshift = true_agn_redshift
+                else:
+                    print('Scattering AGN!')
+                    obs_agn_redshift = stats.truncnorm.rvs(size=len(agn_ra), 
+                                                           a=(ZMIN - true_agn_redshift) / agn_redshift_err, 
+                                                           b=(np.inf - true_agn_redshift) / agn_redshift_err, 
+                                                           loc=true_agn_redshift, 
+                                                           scale=agn_redshift_err)  # Or a Gaussian: np.random.normal(loc=true_agn_redshift, scale=agn_redshift_err, size=len(agn_ra))
                 
-    #             obs_agn_rlum = COSMO.luminosity_distance(obs_agn_redshift).value
+                obs_agn_rlum = COSMO.luminosity_distance(obs_agn_redshift).value
 
 
-    #             cat_coord = SkyCoord(agn_ra * u.rad, agn_dec * u.rad, obs_agn_rlum * u.Mpc)
-    #             b = cat_coord.galactic.b.degree
+                cat_coord = SkyCoord(agn_ra * u.rad, agn_dec * u.rad, obs_agn_rlum * u.Mpc)
+                b = cat_coord.galactic.b.degree
                 
 
-    #             ### Making a redshift-incomplete catalog ###
-    #             LUM_THRESH = "45.5"
-    #             c_per_zbin = quaia_c_vals[:, threshold_map[LUM_THRESH]]
-    #             redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
-    #             for i, c in enumerate(c_per_zbin):
-    #                 z_low = z_edges[i]
-    #                 z_high = z_edges[i + 1]
+                ### Making a redshift-incomplete catalog ###
+                LUM_THRESH = "45.5"
+                c_per_zbin = quaia_c_vals[:, threshold_map[LUM_THRESH]]
+                redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
+                for i, c in enumerate(c_per_zbin):
+                    z_low = z_edges[i]
+                    z_high = z_edges[i + 1]
 
-    #                 agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
-    #                 keep_these = np.random.rand(len(agn_in_bin)) < c
-    #                 redshift_incomplete_mask[agn_in_bin[keep_these]] = True
+                    agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
+                    keep_these = np.random.rand(len(agn_in_bin)) < c
+                    redshift_incomplete_mask[agn_in_bin[keep_these]] = True
                 
-    #             # plt.figure()
-    #             # plt.hist(obs_agn_redshift[redshift_incomplete_mask], density=True, bins=z_edges)
-    #             # plt.savefig('zhist.pdf', bbox_inches='tight')
-    #             # plt.close()
-    #             #############################################
+                # plt.figure()
+                # plt.hist(obs_agn_redshift[redshift_incomplete_mask], density=True, bins=z_edges)
+                # plt.savefig('zhist.pdf', bbox_inches='tight')
+                # plt.close()
+                #############################################
 
-    #             # incomplete_catalog_idx = np.ones_like(agn_ra, dtype=bool)
+                # incomplete_catalog_idx = np.ones_like(agn_ra, dtype=bool)
                 
-    #             COMPLETENESS = 0.8
+                COMPLETENESS = 0.8
 
-    #             incomplete_catalog_idx = np.random.choice(np.arange(len(agn_ra)), size=int(COMPLETENESS * len(agn_ra)), replace=False) # np.arange(len(agn_ra))
-    #             # latitude_mask = np.logical_or(b[incomplete_catalog_idx] > 10, b[incomplete_catalog_idx] < -10)
-    #             latitude_mask = np.ones_like(incomplete_catalog_idx, dtype=bool)
-    #             # incomplete_catalog_idx = latitude_incomplete_mask #& redshift_incomplete_mask
-    #             print('KEEPING NAGN =', len(incomplete_catalog_idx[latitude_mask]))
+                incomplete_catalog_idx = np.random.choice(np.arange(len(agn_ra)), size=int(COMPLETENESS * len(agn_ra)), replace=False) # np.arange(len(agn_ra))
+                # latitude_mask = np.logical_or(b[incomplete_catalog_idx] > 10, b[incomplete_catalog_idx] < -10)
+                latitude_mask = np.ones_like(incomplete_catalog_idx, dtype=bool)
+                # incomplete_catalog_idx = latitude_incomplete_mask #& redshift_incomplete_mask
+                print('KEEPING NAGN =', len(incomplete_catalog_idx[latitude_mask]))
 
-    #             # c_per_zbin = np.tile(COMPLETENESS, len(c_per_zbin))
-    #             clist = []
-    #             for i, c in enumerate(c_per_zbin):
-    #                 z_low = z_edges[i]
-    #                 z_high = z_edges[i + 1]
+                # c_per_zbin = np.tile(COMPLETENESS, len(c_per_zbin))
+                clist = []
+                for i, c in enumerate(c_per_zbin):
+                    z_low = z_edges[i]
+                    z_high = z_edges[i + 1]
 
-    #                 nagn_in_bin = np.sum((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))
-    #                 nobs_in_bin = np.sum((obs_agn_redshift[incomplete_catalog_idx] > z_low) & (obs_agn_redshift[incomplete_catalog_idx] < z_high))
-    #                 clist.append(nobs_in_bin)
-    #             c_per_zbin = np.array(clist / nagn_in_bin)
-    #             print(c_per_zbin)
+                    nagn_in_bin = np.sum((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))
+                    nobs_in_bin = np.sum((obs_agn_redshift[incomplete_catalog_idx] > z_low) & (obs_agn_redshift[incomplete_catalog_idx] < z_high))
+                    clist.append(nobs_in_bin)
+                c_per_zbin = np.array(clist / nagn_in_bin)
+                print(c_per_zbin)
 
-    #             agn_ra = agn_ra[incomplete_catalog_idx][latitude_mask]
-    #             agn_dec = agn_dec[incomplete_catalog_idx][latitude_mask]
-    #             obs_agn_redshift = obs_agn_redshift[incomplete_catalog_idx][latitude_mask]
-    #             agn_redshift_err = agn_redshift_err[incomplete_catalog_idx][latitude_mask]
-    #             obs_agn_rlum = obs_agn_rlum[incomplete_catalog_idx][latitude_mask]
+                agn_ra = agn_ra[incomplete_catalog_idx][latitude_mask]
+                agn_dec = agn_dec[incomplete_catalog_idx][latitude_mask]
+                obs_agn_redshift = obs_agn_redshift[incomplete_catalog_idx][latitude_mask]
+                agn_redshift_err = agn_redshift_err[incomplete_catalog_idx][latitude_mask]
+                obs_agn_rlum = obs_agn_rlum[incomplete_catalog_idx][latitude_mask]
 
 
-    #             cmap_path = "completeness_map.fits"
-    #             npix = hp.nside2npix(CMAP_NSIDE)
+                cmap_path = "completeness_map.fits"
+                npix = hp.nside2npix(CMAP_NSIDE)
 
-    #             theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
-    #             map_coord = SkyCoord(phi * u.rad, (np.pi * 0.5 - theta) * u.rad)
-    #             map_b = map_coord.galactic.b.degree
-    #             outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
+                theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
+                map_coord = SkyCoord(phi * u.rad, (np.pi * 0.5 - theta) * u.rad)
+                map_b = map_coord.galactic.b.degree
+                outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
 
-    #             values = np.tile(COMPLETENESS, npix)
-    #             # values[~outside_galactic_plane_pix] = 0
+                values = np.tile(COMPLETENESS, npix)
+                # values[~outside_galactic_plane_pix] = 0
 
-    #             hp.write_map(cmap_path, values, nest=True, dtype=np.float32, overwrite=True)
-    #             completeness_map = hp.read_map("completeness_map.fits", nest=True)
+                hp.write_map(cmap_path, values, nest=True, dtype=np.float32, overwrite=True)
+                completeness_map = hp.read_map("completeness_map.fits", nest=True)
                 
-    #             plt.figure()
-    #             hp.mollview(
-    #                         completeness_map,
-    #                         nest=True,
-    #                         coord="G",               # plot in Galactic coords
-    #                         title="Mask: 1 outside |b|<=10°, 0 inside",
-    #                         cmap="coolwarm",
-    #                         min=0, max=1
-    #                     )
-    #             hp.graticule()
-    #             plt.savefig('cmap.pdf', bbox_inches='tight')
-    #             plt.close()
+                plt.figure()
+                hp.mollview(
+                            completeness_map,
+                            nest=True,
+                            coord="G",               # plot in Galactic coords
+                            title="Mask: 1 outside |b|<=10°, 0 inside",
+                            cmap="coolwarm",
+                            min=0, max=1
+                        )
+                hp.graticule()
+                plt.savefig('cmap.pdf', bbox_inches='tight')
+                plt.close()
             
-    #         ###################### NEW LIKELIHOOD ######################
+            ###################### NEW LIKELIHOOD ######################
 
-    #         posterior_path = f'agn_posteriors_precompute_{fagn_idx}.hdf5'
+            posterior_path = f'agn_posteriors_precompute_{fagn_idx}.hdf5'
 
-    #         if os.path.exists(posterior_path):
-    #             os.remove(posterior_path)
+            if os.path.exists(posterior_path):
+                os.remove(posterior_path)
 
-    #         compute_and_save_posteriors_hdf5(posterior_path, 
-    #                                         obs_agn_redshift, 
-    #                                         agn_redshift_err, 
-    #                                         AGN_POSTERIOR_NORM_AX,
-    #                                         AGN_ZMAX)
+            compute_and_save_posteriors_hdf5(posterior_path, 
+                                            obs_agn_redshift, 
+                                            agn_redshift_err, 
+                                            AGN_POSTERIOR_NORM_AX,
+                                            AGN_ZMAX)
             
-    #         S_agn_cw = np.zeros(BATCH)
-    #         S_alt_cw = np.zeros(BATCH)
-    #         S_alt = np.zeros(BATCH)
-    #         COUNTER = 0
-    #         for gw_idx in range(BATCH):
-    #             filename = f"/net/vdesk/data2/pouw/MRP/mockdata_analysis/darksirenpop/skymaps_{DIRECTORY_ID}/skymap_0_{fagn_idx}_{gw_idx:05d}.fits.gz"
+            S_agn_cw = np.zeros(BATCH)
+            S_alt_cw = np.zeros(BATCH)
+            S_alt = np.zeros(BATCH)
+            COUNTER = 0
+            for gw_idx in range(BATCH):
+                filename = f"/home/lucas/Documents/PhD/skymaps_{DIRECTORY_ID}/skymap_0_{fagn_idx}_{gw_idx:05d}.fits.gz"
 
-    #             skymap = read_sky_map(filename, moc=True)
-    #             print(f'\nLoaded file: {filename}')
+                skymap = read_sky_map(filename, moc=True)
+                print(f'\nLoaded file: {filename}')
 
-    #             # This function calculates the evidence for each hypothesis by integrating in redshift-space
-    #             sagn_cw, salt_cw, salt = crossmatch(posterior_path=posterior_path,
-    #                                                 sky_map=skymap,
-    #                                                 completeness_map=completeness_map,
-    #                                                 completeness_zedges=np.array(z_edges),
-    #                                                 completeness_zvals=np.array(c_per_zbin),
-    #                                                 agn_ra=agn_ra, 
-    #                                                 agn_dec=agn_dec, 
-    #                                                 agn_lumdist=obs_agn_rlum, 
-    #                                                 agn_redshift=obs_agn_redshift,
-    #                                                 agn_redshift_err=agn_redshift_err,
-    #                                                 skymap_cl=SKYMAP_CL,
-    #                                                 gw_zcut=ZMAX,
-    #                                                 s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX, 
-    #                                                 s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,
-    #                                                 assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT)
+                # This function calculates the evidence for each hypothesis by integrating in redshift-space
+                sagn_cw, salt_cw, salt = crossmatch(posterior_path=posterior_path,
+                                                    sky_map=skymap,
+                                                    completeness_map=completeness_map,
+                                                    completeness_zedges=np.array(z_edges),
+                                                    completeness_zvals=np.array(c_per_zbin),
+                                                    agn_ra=agn_ra, 
+                                                    agn_dec=agn_dec, 
+                                                    agn_lumdist=obs_agn_rlum, 
+                                                    agn_redshift=obs_agn_redshift,
+                                                    agn_redshift_err=agn_redshift_err,
+                                                    skymap_cl=SKYMAP_CL,
+                                                    gw_zcut=ZMAX,
+                                                    s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX, 
+                                                    s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,
+                                                    assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT)
                 
-    #             S_agn_cw[gw_idx] = sagn_cw
-    #             S_alt_cw[gw_idx] = salt_cw
-    #             S_alt[gw_idx] = salt
+                S_agn_cw[gw_idx] = sagn_cw
+                S_alt_cw[gw_idx] = salt_cw
+                S_alt[gw_idx] = salt
 
-    #             print(sagn_cw, salt_cw, salt)
+                print(sagn_cw, salt_cw, salt)
 
-    #             if not sagn_cw and not salt_cw:
-    #                 COUNTER += 1
+                if not sagn_cw and not salt_cw:
+                    COUNTER += 1
 
-    #         #########################################################
+            #########################################################
 
-    #         S_agn_cw = S_agn_cw[~np.isnan(S_agn_cw)]
-    #         S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
-    #         S_alt = S_alt[~np.isnan(S_alt)]
+            S_agn_cw = S_agn_cw[~np.isnan(S_agn_cw)]
+            S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
+            S_alt = S_alt[~np.isnan(S_alt)]
 
-    #         print(f'\n--- AFTER CROSSMATCHING THERE ARE {len(S_agn_cw)} GWS LEFT ---\n')
+            print(f'\n--- AFTER CROSSMATCHING THERE ARE {len(S_agn_cw)} GWS LEFT ---\n')
 
-    #         loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+            loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
 
-    #         nans = np.where(np.isnan(loglike))
-    #         print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
-    #         print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
+            nans = np.where(np.isnan(loglike))
+            print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
+            print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
             
 
-    #         log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # sum over all GWs
+            log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # sum over all GWs
 
-    #         posterior = log_llh[:,fagn_idx]
-    #         posterior -= np.max(posterior)
-    #         pdf = np.exp(posterior)
-    #         norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
-    #         pdf = pdf / norm
+            posterior = log_llh[:,fagn_idx]
+            posterior -= np.max(posterior)
+            pdf = np.exp(posterior)
+            norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
+            pdf = pdf / norm
 
-    #        # plt.figure()
-    #        # plt.plot(LOG_LLH_X_AX, pdf)
-    #        # plt.savefig(f'mock_posterior_fagnidx_{fagn_idx}.pdf', bbox_inches='tight')
-    #        # plt.close()
+           # plt.figure()
+           # plt.plot(LOG_LLH_X_AX, pdf)
+           # plt.savefig(f'mock_posterior_fagnidx_{fagn_idx}.pdf', bbox_inches='tight')
+           # plt.close()
 
-    #     posteriors[trial_idx,:,:] = log_llh
+        posteriors[trial_idx,:,:] = log_llh
 
-    # np.save(os.path.join(sys.path[0], posterior_fname), posteriors)
+    np.save(os.path.join(sys.path[0], posterior_fname), posteriors)
 
 ##################################################################################################################################################
 

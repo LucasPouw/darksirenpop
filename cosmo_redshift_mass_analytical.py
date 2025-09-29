@@ -38,9 +38,9 @@ COSMO = DEFAULT_COSMOLOGY
 SPEED_OF_LIGHT_KMS = c.to('km/s').value
 
 MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
-SKYMAP_DIR = './skymaps_moc_200'
-POST_SAMPS_DIR = './posterior_samples_moc_200'
-CAT_DIR = './catalogs_moc_200'
+SKYMAP_DIR = './skymaps_moc_500_xd'
+POST_SAMPS_DIR = './posterior_samples_moc_500_xd'
+CAT_DIR = './catalogs_moc_500_xd'
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True
@@ -90,8 +90,8 @@ S_ALT_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, 8192*2+1)
 ZNORM_ROMB_AXIS = np.geomspace(ZMIN / 10, 10 * ZMAX, 8192*2+1)  # Normalizing the GW redshift posterior is done numerically, this is the range on which that happens.
 
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
-AGN_NUMDENS = 200 / VOLUME
-BATCH = int(200)
+AGN_NUMDENS = 500 / VOLUME
+BATCH = int(500)
 N_TRIALS = 1
 MAX_N_FAGNS = 6
 CALC_LOGLLH_AT_N_POINTS = 1000
@@ -528,6 +528,9 @@ def full_analysis_likelihood_thread(trial_idx):
     
     log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
     for fagn_idx, fagn_true in enumerate(TRUE_FAGNS):
+        # if fagn_idx <= 1:
+        #     continue
+
         # fagn_realized = np.random.binomial(BATCH, fagn_true) / BATCH  # Observed f_agn fluctuates around the true value
         fagn_realized = fagn_true
         print('FAGN = FAGN_TRUE')
