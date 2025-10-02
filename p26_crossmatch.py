@@ -189,10 +189,34 @@ def crossmatch_p26(posterior_path,
     print('Calculating S_agn...')
     S_agn_cw = 0
     if assume_perfect_redshift:
-        print('PERFECT REDSHIFT NOT YET IMPLEMENTED WITH VARYING MERGER RATE OR COMPLETENESS')
+        print('PERFECT REDSHIFT NOT YET IMPLEMENTED WITH VARYING MERGER RATE')
 
-        for _, has_agn in zip(counts, unique_gw_idx):
-            # print(f'Pixel: {has_agn} contains {count} AGN')
+        # for _, has_agn in zip(counts, unique_gw_idx):
+        #     # print(f'Pixel: {has_agn} contains {count} AGN')
+        #     gw_redshift_posterior_in_pix = lambda z: redshift_pdf_given_lumdist_pdf(z, LOS_lumdist_ansatz, distnorm=norm[has_agn], distmu=mu[has_agn], distsigma=sigma[has_agn])
+
+        #     agn_in_pix = (true_idx == has_agn)
+
+        #     # Only evaluate the GW posterior for AGN within 5sigma. If outside this range, the probability will be floored to 0. The AGN is still counted in the normalization.
+        #     lumdist_5sig = (agn_lumdist[agn_in_pix] > (mu[has_agn] - 5 * sigma[has_agn])) & (agn_lumdist[agn_in_pix] < (mu[has_agn] + 5 * sigma[has_agn]))
+        #     below_zcut = agn_redshift[agn_in_pix] < gw_zcut
+        #     if np.sum(lumdist_5sig & below_zcut) == 0:  # The contribution to S_agn is 0 in this pixel, so skip
+        #         continue
+
+        #     selected_agn_redshifts = agn_redshift[agn_in_pix][lumdist_5sig & below_zcut]
+
+        #     gw_posterior_at_agn_redshift = gw_redshift_posterior_in_pix(selected_agn_redshifts) #* merger_rate(selected_agn_redshifts, merger_rate_func, **merger_rate_kwargs)
+        #     contribution = np.sum( redshift_completeness(selected_agn_redshifts) * gw_posterior_at_agn_redshift * dP_dA[has_agn] / uniform_comoving_prior(selected_agn_redshifts) )  # p_gw(z) * p_gw(Omega), evaluated at AGN position because of delta-function AGN posteriors, sum contributions of all AGN in this pixel
+        #     S_agn_cw += contribution
+
+        mp_start = time.time()
+
+        def process_one(args):
+            '''
+            In this case, it is probably better to mp over many events, maybe that's also better in the case of agn errors xdd, but S_alt calc needs to be not parallel then...
+            '''
+            has_agn, _ = args
+
             gw_redshift_posterior_in_pix = lambda z: redshift_pdf_given_lumdist_pdf(z, LOS_lumdist_ansatz, distnorm=norm[has_agn], distmu=mu[has_agn], distsigma=sigma[has_agn])
 
             agn_in_pix = (true_idx == has_agn)
@@ -201,14 +225,22 @@ def crossmatch_p26(posterior_path,
             lumdist_5sig = (agn_lumdist[agn_in_pix] > (mu[has_agn] - 5 * sigma[has_agn])) & (agn_lumdist[agn_in_pix] < (mu[has_agn] + 5 * sigma[has_agn]))
             below_zcut = agn_redshift[agn_in_pix] < gw_zcut
             if np.sum(lumdist_5sig & below_zcut) == 0:  # The contribution to S_agn is 0 in this pixel, so skip
-                continue
+                return 0
 
             selected_agn_redshifts = agn_redshift[agn_in_pix][lumdist_5sig & below_zcut]
 
             gw_posterior_at_agn_redshift = gw_redshift_posterior_in_pix(selected_agn_redshifts) #* merger_rate(selected_agn_redshifts, merger_rate_func, **merger_rate_kwargs)
             contribution = np.sum( redshift_completeness(selected_agn_redshifts) * gw_posterior_at_agn_redshift * dP_dA[has_agn] / uniform_comoving_prior(selected_agn_redshifts) )  # p_gw(z) * p_gw(Omega), evaluated at AGN position because of delta-function AGN posteriors, sum contributions of all AGN in this pixel
-            S_agn_cw += contribution
-    
+
+            return contribution
+        
+        tasks = list(zip(unique_gw_idx, counts))
+        with ThreadPoolExecutor() as executor:
+            contributions = list(executor.map(process_one, tasks))
+
+        S_agn_cw = np.sum(contributions)
+        print('Total Sagn time:', time.time() - mp_start)
+        
     else:
 
         ### gw_redshift_posterior_in_pix evaluation and AGN posterior loading are the most expensive operations right now, dominating S_agn computation time ###
@@ -306,13 +338,11 @@ def crossmatch_p26(posterior_path,
 
             return contribution
 
-
         tasks = list(zip(unique_gw_idx, counts))
         with ThreadPoolExecutor() as executor:
             contributions = list(executor.map(process_one, tasks))
 
         S_agn_cw = np.sum(contributions)
-
         print('Total Sagn time:', time.time() - mp_start)
 
         # if count != 1:
@@ -353,9 +383,9 @@ def crossmatch_p26(posterior_path,
 
     sky_coverage = np.sum(dA[surveyed]) / np.sum(dA)
     S_agn_cw *= sky_coverage
-    print(f'SKY COVERAGE: {sky_coverage}')
 
     print('Calculating S_alt...')
+    # S_alt = 1  # WHEN USING ONLY SKYLOC
     # S_alt_cw = np.sum(dP * cmap_vals_in_gw_skymap)  # WHEN USING ONLY SKYLOC
 
     skyprob_nonzero = (dP != 0)
@@ -368,12 +398,12 @@ def crossmatch_p26(posterior_path,
 
     gw_redshift_posterior_marginalized_cw = lambda z: redshift_pdf_given_lumdist_pdf(z, 
                                                                                     allsky_marginal_lumdist_distribution, 
-                                                                                    dP=dP[surveyed],
-                                                                                    norm=norm[surveyed], 
-                                                                                    mu=mu[surveyed], 
-                                                                                    sigma=sigma[surveyed])
+                                                                                    dP=dP[surveyed & skyprob_nonzero],
+                                                                                    norm=norm[surveyed & skyprob_nonzero], 
+                                                                                    mu=mu[surveyed & skyprob_nonzero], 
+                                                                                    sigma=sigma[surveyed & skyprob_nonzero])
 
-    # WARNING: THIS HAS TO BE RE-EVALUATED ONCE THE BACKGROUND DISTRIBUTION IS NOT UNIFORM IN COMOVING VOLUME LIKE THE PARAMETER ESTIMATION PRIOR -> use the population distribution in the population prior and divide gw posterior by uniform in comvol later
+    # WARNING: THESE LINES HAVE TO BE RETHOUGHT ONCE THE BACKGROUND DISTRIBUTION IS NOT UNIFORM IN COMOVING VOLUME LIKE THE PARAMETER ESTIMATION PRIOR -> use the population distribution in the population prior and divide gw posterior by uniform in comvol later
     alt_redshift_population_prior_rate_weighted = merger_rate(s_alt_z_integral_ax, merger_rate_func, **merger_rate_kwargs) * z_cut(s_alt_z_integral_ax, zcut=gw_zcut)  # Uniform in comvol prior divides out against parameter estimation prior, but has to be present still in the normalization of the population prior.
     alt_redshift_population_prior_rate_weighted /= romb(uniform_comoving_prior(s_alt_z_integral_ax) * alt_redshift_population_prior_rate_weighted * s_alt_z_integral_ax * np.log(10), dx=dz_Salt)
 
@@ -383,8 +413,22 @@ def crossmatch_p26(posterior_path,
     S_alt = romb(y=gw_posterior_times_alt_population_prior * s_alt_z_integral_ax * np.log(10), dx=dz_Salt)
     S_alt_cw = romb(y=gw_posterior_times_cw_alt_population_prior * s_alt_z_integral_ax * np.log(10), dx=dz_Salt)
 
-    if S_alt_cw > S_alt:
-        print(S_alt_cw, S_alt, 'bruh')
-        time.sleep(10)
+    S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, causes a NaN in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
 
     return S_agn_cw, S_alt_cw, S_alt
+
+
+'''
+Indistinguishable: c=1 and no AGN there, c=0 and many AGN there
+
+So 
+if c=1 and no AGN, you have part of the sky that counts in the S_alt_cw integral, while no contribution to S_agn_cw is made (since no AGN is summed over)
+if c=0 and no AGN, you have part of the sky that does not contribute to the S_alt_cw integral, while no contribution to S_agn_cw is made (since no AGN is summed over)
+
+If we mask out a part of the sky, this should be c=0, right? So why do I have to multiply S_agn_cw by the sky coverage?
+'''
+
+
+'''
+When there are AGN redshift errors, think about how the normalization of the population prior is effectively up to zcut, work it out with pen and paper!
+'''

@@ -52,7 +52,7 @@ CMAP_NSIDE = 64
 N_TRUE_FAGNS = 6
 SKYMAP_CL = 0.999
 LUM_THRESH = "45.5"
-ADD_NAGN_TO_CAT = int(1e5)
+ADD_NAGN_TO_CAT = 0#int(1e5)
 COMPLETENESS = 0.7
 
 ASSUME_PERFECT_REDSHIFT = True
@@ -213,15 +213,16 @@ for trial_idx in range(N_TRIALS):
             
 
             ### Making a redshift-incomplete catalog ###
+            # c_per_zbin = np.tile(COMPLETENESS, len(z_edges) - 1)
             c_per_zbin = quaia_c_vals[:, threshold_map[LUM_THRESH]]
-            # redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
-            # for i, c in enumerate(c_per_zbin):
-            #     z_low = z_edges[i]
-            #     z_high = z_edges[i + 1]
+            redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
+            for i, c_in_bin in enumerate(c_per_zbin):
+                z_low = z_edges[i]
+                z_high = z_edges[i + 1]
 
-            #     agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
-            #     keep_these = np.random.rand(len(agn_in_bin)) < c
-            #     redshift_incomplete_mask[agn_in_bin[keep_these]] = True
+                agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
+                keep_these = np.random.rand(len(agn_in_bin)) < c_in_bin
+                redshift_incomplete_mask[agn_in_bin[keep_these]] = True
             
             # plt.figure()
             # plt.hist(obs_agn_redshift[redshift_incomplete_mask], density=True, bins=z_edges)
@@ -230,42 +231,29 @@ for trial_idx in range(N_TRIALS):
             #############################################
 
             # incomplete_catalog_idx = np.ones_like(agn_ra, dtype=bool)
-            latitude_mask = np.ones_like(agn_ra, dtype=bool)
-            # c_per_zbin = np.tile(COMPLETENESS, len(c_per_zbin))
+            # incomplete_catalog_idx = np.random.choice(np.arange(len(agn_ra))[latitude_mask], size=int(COMPLETENESS * np.sum(latitude_mask)), replace=False)
+            
+            # latitude_mask = np.ones_like(agn_ra, dtype=bool)
+            latitude_mask = np.logical_or(b > 10, b < -10)
+            incomplete_catalog_mask = (latitude_mask & redshift_incomplete_mask)
+            print('KEEPING NAGN =', np.sum(incomplete_catalog_mask))
 
-
-            # latitude_mask = np.logical_or(b > 10, b < -10)
-            incomplete_catalog_idx = np.random.choice(np.arange(len(agn_ra))[latitude_mask], size=int(COMPLETENESS * np.sum(latitude_mask)), replace=False)
-            print('KEEPING NAGN =', len(incomplete_catalog_idx))
-
-            clist = []
-            for i, _ in enumerate(c_per_zbin):
-                z_low = z_edges[i]
-                z_high = z_edges[i + 1]
-
-                nagn_in_bin = np.sum((obs_agn_redshift[latitude_mask] > z_low) & (obs_agn_redshift[latitude_mask] < z_high))
-                nobs_in_bin = np.sum((obs_agn_redshift[incomplete_catalog_idx] > z_low) & (obs_agn_redshift[incomplete_catalog_idx] < z_high))
-                clist.append(nobs_in_bin)
-            c_per_zbin = np.array(clist / nagn_in_bin)
-            print(c_per_zbin)
-
-            agn_ra = agn_ra[incomplete_catalog_idx]
-            agn_dec = agn_dec[incomplete_catalog_idx]
-            obs_agn_redshift = obs_agn_redshift[incomplete_catalog_idx]
-            agn_redshift_err = agn_redshift_err[incomplete_catalog_idx]
-            obs_agn_rlum = obs_agn_rlum[incomplete_catalog_idx]
+            agn_ra = agn_ra[incomplete_catalog_mask]
+            agn_dec = agn_dec[incomplete_catalog_mask]
+            obs_agn_redshift = obs_agn_redshift[incomplete_catalog_mask]
+            agn_redshift_err = agn_redshift_err[incomplete_catalog_mask]
+            obs_agn_rlum = obs_agn_rlum[incomplete_catalog_mask]
 
             npix = hp.nside2npix(CMAP_NSIDE)
-
             theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
             map_coord = SkyCoord(phi * u.rad, (np.pi * 0.5 - theta) * u.rad)
             map_b = map_coord.galactic.b.degree
             outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
 
-            values = np.tile(1, npix)
-            # values[~outside_galactic_plane_pix] = 0
+            cmap_values = np.tile(1, npix)
+            cmap_values[~outside_galactic_plane_pix] = 0
 
-            hp.write_map(CMAP_PATH, values, nest=True, dtype=np.float32, overwrite=True)
+            hp.write_map(CMAP_PATH, cmap_values, nest=True, dtype=np.float32, overwrite=True)
             completeness_map = hp.read_map(CMAP_PATH, nest=True)
             
             if PLOT_CMAP:
