@@ -6,7 +6,6 @@ import warnings
 warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
 import h5py
 from default_arguments import DEFAULT_COSMOLOGY as COSMO
-from utils import fast_z_at_value
 import astropy.units as u
 import os
 from ligo.skymap.io.fits import read_sky_map
@@ -17,12 +16,13 @@ from scipy import stats
 from astropy.constants import c
 import healpy as hp
 import time
+from redshift_utils import z_cut, merger_rate_madau, merger_rate_uniform, merger_rate, uniform_comoving_prior, fast_z_at_value
+from utils import uniform_shell_sampler
+import pandas as pd
 
 # from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 # import json
-# import pandas as pd
 
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
 os.environ["OMP_NUM_THREADS"] = "1"
 
 z_edges = np.array([0.0000, 0.1875, 0.3750, 0.5625, 0.7500, 0.9375, 1.1250, 1.3125, 1.5000])
@@ -47,64 +47,58 @@ PLOT_CMAP = True
 INDICATOR = 'MOCK'
 DIRECTORY_ID = 'moc_500'
 BATCH = 500
-LOG_LBOL_THRESH = 45.0  # erg/s
 CMAP_NSIDE = 64
 N_TRUE_FAGNS = 6
 SKYMAP_CL = 0.999
-LUM_THRESH = "45.5"
-ADD_NAGN_TO_CAT = 0#int(1e5)
-COMPLETENESS = 0.7
+LUM_THRESH = "test"  # '45.5' or 'test'
+# COMPLETENESS = 0.7
+MASK_GALACTIC_PLANE = False
+ADD_NAGN_TO_CAT = int(5e5)
+MERGER_RATE_EVOLUTION = merger_rate_uniform
+MERGER_RATE_KWARGS = {}
 
-ASSUME_PERFECT_REDSHIFT = True
-AGN_ZERROR = 0
+ASSUME_PERFECT_REDSHIFT = False
+AGN_ZERROR = 0.01
 
 CALC_LOGLLH_AT_N_POINTS = 1000
 LOG_LLH_X_AX = np.linspace(0.0001, 0.9999, CALC_LOGLLH_AT_N_POINTS)
 
 ZMIN = 1e-4
 ZMAX = 1.5  # p_rate(z > ZMAX) = 0
-AGN_ZMAX = 1.5
+AGN_ZMAX = 2
+assert AGN_ZMAX >= ZMAX, 'Need AGN at least as deep as GWs can go, otherwise the population prior is not evaluated on the correct axis.'
 
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value
 AGN_COMDIST_MAX = COSMO.comoving_distance(AGN_ZMAX).value
 
-AGN_VOLUME = 4 / 3 * np.pi * AGN_COMDIST_MAX**3
+### TODO: find optimal axes ###
+S_AGN_Z_INTEGRAL_AX = np.linspace(ZMIN, ZMAX, int(512)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
+S_ALT_Z_INTEGRAL_AX = S_AGN_Z_INTEGRAL_AX.copy()
+LINAX = True
+
+npoints = int(2**np.ceil(np.log2(10 * (AGN_ZMAX - ZMIN) / AGN_ZERROR)))  # Enforces at least 10 points within 1 sigma in normalization of AGN posteriors -> 
+AGN_POSTERIOR_NORM_AX = np.linspace(ZMIN, AGN_ZMAX, npoints + 1)
+
+# print(AGN_ZERROR / np.max(np.diff(S_AGN_Z_INTEGRAL_AX)))
+# print(AGN_ZERROR / np.max(np.diff(AGN_POSTERIOR_NORM_AX)))
 
 
-### TODO: find optimal axes, maybe also calculate AGN posteriors from -5sig to 5sig and interpolate to AGN_Z_INTEGRAL_AX ###
-S_AGN_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, int(8192/4)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
-S_ALT_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, int(8192/4)+1)
-AGN_POSTERIOR_NORM_AX = np.geomspace(ZMIN, AGN_ZMAX, int(8192/4)+1)
+# def find_optimal_axis(start, stop, maxdiff_thresh):
+#     '''
+#     Find the array np.geomspace(start, stop, 2**x + 1) with the smallest x, such that the largest spacing is smaller than maxdiff_thresh.
+#     '''
+#     n = 2
+#     ax = np.geomspace(start, stop, n + 1)
+#     while np.max(np.diff(ax)) > maxdiff_thresh:
+#         n *= 2
+#         ax = np.geomspace(start, stop, n + 1)
+#     print(f'Optimal axis length: {len(ax)}')
+#     return ax
 
-
-def sample_spherical_angles(n_samps=1):
-    theta = np.arccos(np.random.uniform(size=n_samps, low=-1, high=1))  # Cosine is uniformly distributed between -1 and 1 -> cos between 0 and pi
-    phi = 2 * np.pi * np.random.uniform(size=n_samps)  # Draws phi from 0 to 2pi
-    return theta, phi
-
-
-def uniform_shell_sampler(rmin, rmax, n_samps):
-    r = ( np.random.uniform(size=n_samps, low=rmin**3, high=rmax**3) )**(1/3)
-    theta, phi = sample_spherical_angles(n_samps)
-    return r, theta, phi
-
-
-def uniform_comoving_prior(z):
-    '''Proportional to uniform in comoving volume prior.'''
-    z = np.atleast_1d(z)
-    chi = COSMO.comoving_distance(z).value         # Mpc
-    H_z = COSMO.H(z).value                         # km/s/Mpc
-    dchi_dz = SPEED_OF_LIGHT_KMS / H_z             # Mpc
-    p = (chi**2 * dchi_dz)
-    return p
-
-
-def z_cut(z, zcut=ZMAX):
-    '''Artificial redshift cuts in data analysis should be taken into account.'''
-    stepfunc = np.ones_like(z)
-    stepfunc[z > zcut] = 0
-    return stepfunc
+# a = find_optimal_axis(ZMIN, ZMAX, AGN_ZERROR)  # Calculate the in-catalog redshift integral using at least x function evaluations within 1 sigma of the narrowest AGN posterior
+# b = a.copy()  # Calculate the out-of-catalog redshift integral on the same axis
+# c = find_optimal_axis(ZMIN, AGN_ZMAX, AGN_ZERROR)  # Normalize AGN redshift posteriors using at least x function evaluations within 1 sigma of the narrowest AGN posterior
 
 
 def compute_and_save_posteriors_hdf5(filename, 
@@ -112,13 +106,28 @@ def compute_and_save_posteriors_hdf5(filename,
                                      all_agn_z_err, 
                                      agn_posterior_norm_ax,
                                      agn_zmax):
+    '''
+    AGN redshift posteriors are modelled as truncnorms on [0, inf) with a uniform-in-comoving-volume redshift prior.
+    The posteriors are normalized on agn_posterior_norm_ax, which goes up to AGN_ZMAX.
+    The posteriors are then evaluated on S_AGN_Z_INTEGRAL_AX, which is what is necessary for the crossmatch.
+
+    Returns the sum of all redshift posteriors, evaluated on S_AGN_Z_INTEGRAL_AX, for the normalization of p_pop(z)
+
+    TODO: (Maybe in the future calculate each AGN posterior on its own axis from -5sig to 5sig and interpolate to S_AGN_Z_INTEGRAL_AX?)
+    '''
+
+    maxdiff = np.max(np.diff(agn_posterior_norm_ax))
+    thresh = np.min(all_agn_z_err) / 10
+    assert maxdiff < thresh, f'AGN normalization array is too coarse to capture AGN distribution fully. Got {maxdiff:.3e}, need {thresh:.3e}.'
 
     n_agn = len(all_agn_z)
-    n_z = len(S_AGN_Z_INTEGRAL_AX)
+    n_z = len(S_AGN_Z_INTEGRAL_AX)  # Only need to save the posterior evaluated at this axis
     chunk_size = int(1e6 / n_z)
 
+    sum_of_posteriors = np.zeros(n_z)  # Sum of posteriors is required to normalize the in-catalog population prior
+
     # Precompute dx for romb integration
-    dx = np.diff(np.log10(agn_posterior_norm_ax))[0]
+    dx = np.diff(agn_posterior_norm_ax)[0]
 
     with h5py.File(filename, "w") as f:
         # Prepare dataset for posteriors
@@ -131,11 +140,9 @@ def compute_and_save_posteriors_hdf5(filename,
         for start in tqdm( range(0, n_agn, chunk_size) ):
             end = min(start + chunk_size, n_agn)
 
-            # Slice this chunk
             z_chunk = all_agn_z[start:end]
             zerr_chunk = all_agn_z_err[start:end]
 
-            # Likelihood (vectorized over chunk)
             likelihood = lambda z: stats.truncnorm.pdf(
                 z,
                 a=(ZMIN - z_chunk[:, None]) / zerr_chunk[:, None],
@@ -143,25 +150,22 @@ def compute_and_save_posteriors_hdf5(filename,
                 loc=z_chunk[:, None],
                 scale=zerr_chunk[:, None]
             )
+            agn_posteriors_unnorm = lambda z: likelihood(z) * uniform_comoving_prior(z) * z_cut(z, zcut=agn_zmax)
+            z_norms = romb(agn_posteriors_unnorm(agn_posterior_norm_ax), dx=dx)
 
-            # Unnormalized posterior
-            agn_posteriors_unnorm = lambda z: (
-                likelihood(z) * uniform_comoving_prior(z) * z_cut(z, zcut=agn_zmax)
-            )
+            posteriors = agn_posteriors_unnorm(S_AGN_Z_INTEGRAL_AX) / z_norms[:, None]  # Save the posterior evaluated at the relevant axis
 
-            # Normalization (romb over log10 grid)
-            z_norms = romb(
-                agn_posteriors_unnorm(agn_posterior_norm_ax) * agn_posterior_norm_ax * np.log(10),
-                dx=dx
-            )
-
-            # Final posteriors on integration axis
-            posteriors = agn_posteriors_unnorm(S_AGN_Z_INTEGRAL_AX) / z_norms[:, None]
-
-            # Write to HDF5
+            # Write to HDF5 and save sum of posteriors
             dset[start:end, :] = posteriors
+            sum_of_posteriors += np.sum(posteriors, axis=0)
+
+            # xx = np.linspace(ZMIN, AGN_ZMAX, int(512*32)+1)
+            # znormtest = romb(agn_posteriors_unnorm(xx), dx=np.diff(xx)[0])
+            # for i in range(len(znormtest)):
+            #     print(znormtest[i] / z_norms[i])
 
     print(f"All AGN posteriors written to {filename}")
+    return sum_of_posteriors
 
 
 if AGN_ZERROR == 0:
@@ -194,6 +198,9 @@ for trial_idx in range(N_TRIALS):
             true_agn_redshift = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
 
             agn_redshift_err = np.tile(AGN_ZERROR, len(agn_ra))
+            # df = pd.read_csv("./Quaia_z15.csv")
+            # agn_redshift_err = np.random.choice(df["redshift_quaia_err"], size=len(agn_ra), replace=False)
+            # print(np.min(agn_redshift_err), np.max(agn_redshift_err))
 
             if not AGN_ZERROR:
                 obs_agn_redshift = true_agn_redshift
@@ -210,19 +217,22 @@ for trial_idx in range(N_TRIALS):
 
             cat_coord = SkyCoord(agn_ra * u.rad, agn_dec * u.rad, obs_agn_rlum * u.Mpc)
             b = cat_coord.galactic.b.degree
-            
 
             ### Making a redshift-incomplete catalog ###
-            # c_per_zbin = np.tile(COMPLETENESS, len(z_edges) - 1)
-            c_per_zbin = quaia_c_vals[:, threshold_map[LUM_THRESH]]
-            redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
-            for i, c_in_bin in enumerate(c_per_zbin):
-                z_low = z_edges[i]
-                z_high = z_edges[i + 1]
+            if LUM_THRESH == 'test':
+                c_per_zbin = np.tile(1, len(z_edges) - 1)
+                redshift_incomplete_mask = np.ones_like(obs_agn_redshift, dtype=bool)
+            else:
+                c_per_zbin = quaia_c_vals[:, threshold_map[LUM_THRESH]]
+                redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
+                for i, c_in_bin in enumerate(c_per_zbin):
+                    z_low = z_edges[i]
+                    z_high = z_edges[i + 1]
 
-                agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
-                keep_these = np.random.rand(len(agn_in_bin)) < c_in_bin
-                redshift_incomplete_mask[agn_in_bin[keep_these]] = True
+                    agn_in_bin = np.where((obs_agn_redshift > z_low) & (obs_agn_redshift < z_high))[0]
+                    keep_these = np.random.rand(len(agn_in_bin)) < c_in_bin  # Random realization of true completeness
+                    redshift_incomplete_mask[agn_in_bin[keep_these]] = True
+            print(c_per_zbin, 'Z-COMPLETENESS')
             
             # plt.figure()
             # plt.hist(obs_agn_redshift[redshift_incomplete_mask], density=True, bins=z_edges)
@@ -233,9 +243,12 @@ for trial_idx in range(N_TRIALS):
             # incomplete_catalog_idx = np.ones_like(agn_ra, dtype=bool)
             # incomplete_catalog_idx = np.random.choice(np.arange(len(agn_ra))[latitude_mask], size=int(COMPLETENESS * np.sum(latitude_mask)), replace=False)
             
-            # latitude_mask = np.ones_like(agn_ra, dtype=bool)
-            latitude_mask = np.logical_or(b > 10, b < -10)
-            incomplete_catalog_mask = (latitude_mask & redshift_incomplete_mask)
+            if MASK_GALACTIC_PLANE:
+                latitude_mask = np.logical_or(b > 10, b < -10)
+            else:
+                latitude_mask = np.ones_like(b, dtype=bool)
+            
+            incomplete_catalog_mask = (latitude_mask & redshift_incomplete_mask)  # To emulate V25's selection of Quaia, include  & (obs_agn_redshift < ZMAX)
             print('KEEPING NAGN =', np.sum(incomplete_catalog_mask))
 
             agn_ra = agn_ra[incomplete_catalog_mask]
@@ -251,7 +264,8 @@ for trial_idx in range(N_TRIALS):
             outside_galactic_plane_pix = np.logical_or(map_b > 10, map_b < -10)
 
             cmap_values = np.tile(1, npix)
-            cmap_values[~outside_galactic_plane_pix] = 0
+            if MASK_GALACTIC_PLANE:
+                cmap_values[~outside_galactic_plane_pix] = 0
 
             hp.write_map(CMAP_PATH, cmap_values, nest=True, dtype=np.float32, overwrite=True)
             completeness_map = hp.read_map(CMAP_PATH, nest=True)
@@ -278,11 +292,23 @@ for trial_idx in range(N_TRIALS):
             if os.path.exists(posterior_path):
                 os.remove(posterior_path)
 
-            compute_and_save_posteriors_hdf5(posterior_path, 
-                                            obs_agn_redshift, 
-                                            agn_redshift_err, 
-                                            AGN_POSTERIOR_NORM_AX,
-                                            AGN_ZMAX)
+            sum_of_posteriors = compute_and_save_posteriors_hdf5(posterior_path, 
+                                                                obs_agn_redshift, 
+                                                                agn_redshift_err, 
+                                                                AGN_POSTERIOR_NORM_AX,
+                                                                AGN_ZMAX)
+        
+        if ASSUME_PERFECT_REDSHIFT:
+            print('POPULATION NORMALIZATION DOES NOT TAKE MERGER RATE INTO ACCOUNT YET')
+            redshift_population_prior_normalization = np.sum(obs_agn_redshift < ZMAX)  # TODO: 1/Nagn is the normalization of the population prior, but that should change when the merger rate is z-dependent -> np.sum( merger_rate(agn_redshift) )
+        else:
+            if LINAX:
+                dz = np.diff(S_AGN_Z_INTEGRAL_AX)[0]
+                redshift_population_prior_normalization = romb(sum_of_posteriors * merger_rate(S_AGN_Z_INTEGRAL_AX, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS) * z_cut(S_AGN_Z_INTEGRAL_AX, zcut=ZMAX), dx=dz)
+
+            else:
+                dz = np.diff(np.log10(S_AGN_Z_INTEGRAL_AX))[0]
+                redshift_population_prior_normalization = romb(sum_of_posteriors * merger_rate(S_AGN_Z_INTEGRAL_AX, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS) * z_cut(S_AGN_Z_INTEGRAL_AX, zcut=ZMAX) * S_AGN_Z_INTEGRAL_AX * np.log(10), dx=dz)
         
         S_agn_cw = np.zeros(BATCH)
         S_alt_cw = np.zeros(BATCH)
@@ -291,6 +317,9 @@ for trial_idx in range(N_TRIALS):
         # fromagn_counter = 0
         for gw_idx in range(BATCH):
             filename = f"./skymaps_{DIRECTORY_ID}/skymap_{trial_idx}_{fagn_idx}_{gw_idx:05d}.fits.gz"
+
+            if gw_idx < 353:
+                continue
 
             skymap = read_sky_map(filename, moc=True)
             print(f'\nLoaded file: {filename}')
@@ -321,7 +350,13 @@ for trial_idx in range(N_TRIALS):
                                                 gw_zcut=ZMAX,
                                                 s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX, 
                                                 s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,
-                                                assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT)
+                                                assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,
+                                                merger_rate_func=MERGER_RATE_EVOLUTION,
+                                                linax=LINAX,
+                                                **MERGER_RATE_KWARGS)
+            
+            # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
+            sagn_cw *= (4 * np.pi / redshift_population_prior_normalization)
             
             S_agn_cw[gw_idx] = sagn_cw
             S_alt_cw[gw_idx] = salt_cw
