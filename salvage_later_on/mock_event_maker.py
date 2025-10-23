@@ -7,7 +7,7 @@ from agn_catalogs_and_priors.mock_catalog_maker import MockCatalog
 from priors import *
 import json
 import shutil
-from default_arguments import *
+from darksirenpop.default_globals import *
 from tqdm import tqdm
 import h5py
 from scipy.stats import vonmises_fisher

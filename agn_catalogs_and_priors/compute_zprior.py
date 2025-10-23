@@ -19,7 +19,7 @@ import logging
 from pixelated_catalog import load_catalog_from_path
 from darksirenpop.arguments import create_parser
 from tqdm import tqdm
-from darksirenpop.default_arguments import *
+from darksirenpop.default_globals import *
 from LOS_zprior import get_norm_interp
 
 handler_out = logging.StreamHandler(stream=sys.stdout)

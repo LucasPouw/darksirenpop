@@ -9,7 +9,7 @@ from astropy.coordinates import SkyCoord
 import warnings
 warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
 import h5py
-from default_arguments import DEFAULT_COSMOLOGY as COSMO
+from default_globals import *
 from utils import fast_z_at_value
 import astropy.units as u
 import os
@@ -17,7 +17,6 @@ from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap.postprocess import crossmatch_v23 as crossmatch
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from scipy import stats
-from astropy.constants import c
 import traceback
 
 # import healpy as hp
@@ -32,8 +31,6 @@ import traceback
 With 500 GWs I get a small downward bias at high f_agn_true at the moment. Don't know why.
 '''
 
-
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
 FAGN_POSTERIOR_FNAME = 'v23_likelihood_posteriors'
 INDICATOR = 'MOCK'
 DIRECTORY_ID = 'moc_500'

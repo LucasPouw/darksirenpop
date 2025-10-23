@@ -7,7 +7,7 @@ import astropy.units as u
 from darksirenpop.utils import uniform_shell_sampler, fast_z_at_value, make_nice_plots
 import h5py
 import healpy as hp
-from darksirenpop.default_arguments import *
+from default_globals import *
 
 
 CATALOG_COLUMNS = ['comoving_distance_true', 'luminosity_distance_true', 'ra_true', 'dec_true', 'redshift_true', 
@@ -23,7 +23,7 @@ class MockCatalog:
         redshift_error: float,
         completeness: float,
         uniform: bool=True,  # In case we ever want to do something non-uniform
-        cosmology=DEFAULT_COSMOLOGY
+        cosmology=COSMO
     ):
         """
         max_redshift: redshift of outer boundary of simulated universe

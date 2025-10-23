@@ -2,7 +2,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 import json
 from utils import ra_dec_from_ipix, ipix_from_ra_dec, make_pixdict, make_nice_plots
-from default_arguments import *
+from darksirenpop.default_globals import *
 import healpy as hp
 import h5py
 import ast

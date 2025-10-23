@@ -5,7 +5,7 @@ from astropy.coordinates import SkyCoord
 import warnings
 warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
 import h5py
-from default_arguments import DEFAULT_COSMOLOGY as COSMO
+from default_globals import *
 from utils import fast_z_at_value
 import astropy.units as u
 import os
@@ -17,15 +17,12 @@ import matplotlib.pyplot as plt
 from scipy.integrate import simpson, romb
 import pandas as pd
 from scipy import stats
-from astropy.constants import c
 import healpy as hp
 
 
 os.environ["OMP_NUM_THREADS"] = "1"
 posterior_fname = 'new_ligoskymap_posteriors'
 INDICATOR = 'MOCK'
-
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
 
 LOG_LBOL_THRESH = 45.0  # erg/s
 

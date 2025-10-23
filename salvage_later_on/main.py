@@ -1,6 +1,6 @@
 from mock_event_maker import MockEvent
 from agn_catalogs_and_priors.mock_catalog_maker import MockCatalog
-from default_arguments import *  # Here are some default arguments that I'm using in multiple files
+from default_globals import *  # Here are some default arguments that I'm using in multiple files
 import os
 from jsons.make_jsons import make_mock_data_jsons
 

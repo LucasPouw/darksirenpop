@@ -4,6 +4,7 @@ from utils import uniform_shell_sampler
 from ligo.skymap.io.fits import read_sky_map
 from p26_crossmatch import crossmatch_p26 as crossmatch
 import sys
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
@@ -13,11 +14,9 @@ all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_1.t
 all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
 true_source_identifiers = all_true_sources[:,0]
 
-log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-# log_llh_bin = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
-    print(f'\nRealization {fagn_idx + 1}/{N_TRUE_FAGNS}: fagn = {fagn_true}')
 
+def process_one_fagn(fagn_idx, fagn_true):
+    s = time.time()
     gw_fnames = gw_fnames_per_realization[:,fagn_idx]
 
     ### Get true source coordinates for GWs from AGN to put in the AGN catalog ###
@@ -57,7 +56,7 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     # S_agn_cw_bin = np.zeros(BATCH)
     # S_alt_cw_bin = np.zeros(BATCH)
     # for gw_idx in range(BATCH):
-    for gw_idx, filename in tqdm(enumerate(gw_fnames)):
+    for gw_idx, filename in enumerate(gw_fnames):
         skymap = read_sky_map(filename, moc=True)
         # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
         
@@ -79,8 +78,8 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
                                                                 merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
                                                                 **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
-        
-        if len(agn_rcom) != 0:
+
+        if len(agn_ra) != 0:
             sagn_cw *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
         # sagn_bin *= (4 * np.pi / redshift_population_prior_normalization)
 
@@ -105,20 +104,18 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
         print('Got NaNs:')
         print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
         print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
+    # print(f'\n{fagn_idx} Done in {time.time() - s}\n')
 
-    # S_agn_cw_bin = S_agn_cw_bin[~np.isnan(S_agn_cw_bin)]
-    # S_alt_cw_bin = S_alt_cw_bin[~np.isnan(S_alt_cw_bin)]
-    # loglike_bin = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw_bin[:,None] - S_alt_cw_bin[:,None]) + S_alt[:,None])
-    # nans = np.isnan(loglike_bin)
-    # if np.sum(nans) != 0:
-    #     print('Got NaNs:')
-    #     print((LOG_LLH_X_AX[None,:] * S_agn_cw_bin[:,None])[nans])
-    #     print((LOG_LLH_X_AX[None,:] * S_alt_cw_bin[:,None])[nans])
-    #     sys.exit(1)
-    # log_llh_bin[:,fagn_idx] = np.sum(loglike_bin, axis=0)  # sum over all GWs
-    
-    log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
-    print('Done.')
+    return fagn_idx, np.sum(loglike, axis=0)
+
+
+log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
+# log_llh_bin = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
+with ProcessPoolExecutor(max_workers=16) as executor:  # 1 proc, 11.5s/it - 8 proc, 14.5s/it - 16 proc, 25s/it - 32 proc, 58s/it
+    futures = [executor.submit(process_one_fagn, fagn_idx, fagn_true) for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS)]
+    for future in tqdm(as_completed(futures)):
+        fagn_idx, llh = future.result()
+        log_llh[:,fagn_idx] = llh
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 # np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME + '_binned.npy'), log_llh_bin)

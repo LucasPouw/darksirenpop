@@ -1,10 +1,6 @@
 import numpy as np
-from astropy.constants import c
-from default_arguments import DEFAULT_COSMOLOGY as COSMO
+from default_globals import *
 from astropy.cosmology import z_at_value
-
-
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
 
 
 def z_cut(z, zcut):
@@ -47,3 +43,12 @@ def fast_z_at_value(function, values, num=100):
     valgrid = function(zgrid)
     zvals = np.interp(values.value, valgrid.value, zgrid)
     return zvals.value
+
+
+def redshift_pdf_given_lumdist_pdf(z, lumdist_pdf, **kwargs):
+    '''lumdist_pdf is assumed to be normalized'''
+    dl = COSMO.luminosity_distance(z).value
+    H_z = COSMO.H(z).value  # H(z) in km/s/Mpc
+    chi_z = dl / (1 + z)
+    dDL_dz = chi_z + (1 + z) * (SPEED_OF_LIGHT_KMS / H_z)
+    return lumdist_pdf(dl, **kwargs) * dDL_dz

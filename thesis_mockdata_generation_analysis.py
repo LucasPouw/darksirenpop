@@ -1,15 +1,11 @@
 import numpy as np
-from utils import uniform_shell_sampler, make_nice_plots, fast_z_at_value, spherical2cartesian, cartesian2spherical
+from utils import uniform_shell_sampler, make_nice_plots, spherical2cartesian, cartesian2spherical
 from tqdm import tqdm
-from default_arguments import DEFAULT_COSMOLOGY
+from default_globals import *
 import astropy.units as u
 from scipy.integrate import quad, romb
-from astropy.constants import c
 from concurrent.futures import as_completed, ThreadPoolExecutor
-from multiprocessing import cpu_count
-# from scipy.interpolate import CubicSpline
 import traceback
-import time
 import sys, os
 from priors import *
 from scipy.stats import vonmises_fisher
@@ -19,7 +15,7 @@ import h5py
 from astropy.table import Table
 import shutil
 import glob
-import scipy.stats as stats
+from redshift_utils import fast_z_at_value
 
 make_nice_plots()
 
@@ -33,14 +29,11 @@ Are my posterior samples correct? No induced prior (Jacobian) that needs to be a
 """
 
 ########################### INPUT PARAMETERS #################################
-
-COSMO = DEFAULT_COSMOLOGY
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
-
 MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
-SKYMAP_DIR = './skymaps_moc_500_xd'
-POST_SAMPS_DIR = './posterior_samples_moc_500_xd'
-CAT_DIR = './catalogs_moc_500_xd'
+ID = 'moc_10k_2'
+SKYMAP_DIR = f'./skymaps_{ID}'
+POST_SAMPS_DIR = f'./posterior_samples_{ID}'
+CAT_DIR = f'./catalogs_{ID}'
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True
@@ -90,10 +83,10 @@ S_ALT_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, 8192*2+1)
 ZNORM_ROMB_AXIS = np.geomspace(ZMIN / 10, 10 * ZMAX, 8192*2+1)  # Normalizing the GW redshift posterior is done numerically, this is the range on which that happens.
 
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
-AGN_NUMDENS = 500 / VOLUME
-BATCH = int(500)
+AGN_NUMDENS = 1e4 / VOLUME
+BATCH = int(1e4)
 N_TRIALS = 1
-MAX_N_FAGNS = 6
+MAX_N_FAGNS = 1
 CALC_LOGLLH_AT_N_POINTS = 1000
 # GW_CHUNK = 100  # Optimized for my own system - vectorize operations for this many GWs 
 # LLH_CHUNK = 10  # Optimized for my own system - vectorize operations for this many values of f_agn
@@ -116,8 +109,7 @@ elif USE_ONLY_SKY:
 elif USE_ONLY_3DLOC:
     fname = f'posteriors_SKYMAP_CL_{SKYMAP_CL}_AGNZERROR_{AGN_ZERROR}_NAGN_{NAGN}_BATCH_{BATCH}'
 
-# NCPU = cpu_count()
-NCPU = 1
+NCPU = 24
 
 assert NAGN >= BATCH, f'Every AGN-origin GW must come from a unique AGN. Got {NAGN} AGN and {BATCH} AGN-origin GWs.'
 print(f'#AGN is rounded from {AGN_NUMDENS * VOLUME} to {NAGN}, giving a number density of {NAGN / VOLUME:.3e}. Target was {AGN_NUMDENS:.3e}.')
@@ -130,8 +122,11 @@ LOG_LLH_X_AX = np.linspace(0.0001, 0.9999, CALC_LOGLLH_AT_N_POINTS)
 # USE_GW_SELECTION_EFFECTS = False
 # LUMDIST_THRESH_GW = LUMDIST_MAX  # Luminosity distance threshold in Mpc
 
-USE_N_AGN_EVENTS = np.arange(0, BATCH + 1, int(BATCH / (N_TRUE_FAGNS - 1)), dtype=np.int32)
-TRUE_FAGNS = USE_N_AGN_EVENTS / BATCH
+if N_TRUE_FAGNS == 1:
+    USE_N_AGN_EVENTS = BATCH
+else:
+    USE_N_AGN_EVENTS = np.arange(0, BATCH + 1, int(BATCH / (N_TRUE_FAGNS - 1)), dtype=np.int32)
+TRUE_FAGNS = np.atleast_1d(USE_N_AGN_EVENTS / BATCH)
 
 ####################################################################
 
@@ -396,7 +391,7 @@ def get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx):
     agn_possibly_generating_gw = np.arange(NAGN)[true_agn_rcom < COMDIST_MAX]
     agn_generating_gw = np.random.choice(agn_possibly_generating_gw, size=n_agn_events, replace=False)  # Do not generate GWs from the same AGN (see Hitchhiker's guide) - I think it only matters when doing selection effects?
     true_x_gw_agn, true_y_gw_agn, true_z_gw_agn = true_agn_x[agn_generating_gw], true_agn_y[agn_generating_gw], true_agn_z[agn_generating_gw]
-    
+
     true_rcom_gw_alt, true_theta_gw_alt, true_phi_gw_alt = uniform_shell_sampler(COMDIST_MIN, COMDIST_MAX, BATCH - n_agn_events)
     true_x_gw_alt, true_y_gw_alt, true_z_gw_alt = spherical2cartesian(true_rcom_gw_alt, true_theta_gw_alt, true_phi_gw_alt)
 
@@ -407,7 +402,7 @@ def get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx):
 
     obs_gw_x, obs_gw_y, obs_gw_z = np.random.normal(loc=true_x_gw, scale=locvol_sigmas, size=BATCH), np.random.normal(loc=true_y_gw, scale=locvol_sigmas, size=BATCH), np.random.normal(loc=true_z_gw, scale=locvol_sigmas, size=BATCH)
 
-    return obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z
+    return true_x_gw, true_y_gw, true_z_gw, obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z
 
 
 def process_gw_3dloc(obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z):
@@ -428,7 +423,7 @@ def process_gw_3dloc(obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas,
 
 
 def make_skymaps_and_catalog(n_agn_events, fagn_idx, trial_idx):
-    obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z = get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx)
+    true_x_gw, true_y_gw, true_z_gw, obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z = get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx)
 
     # First make posterior samples .hdf5 files
     for i in range(BATCH):
@@ -436,7 +431,6 @@ def make_skymaps_and_catalog(n_agn_events, fagn_idx, trial_idx):
         posterior_samples_y = np.random.normal(loc=obs_gw_y[i], scale=locvol_sigmas[i], size=N_POSTERIOR_SAMPLES)
         posterior_samples_z = np.random.normal(loc=obs_gw_z[i], scale=locvol_sigmas[i], size=N_POSTERIOR_SAMPLES)
 
-        # TODO: ASK LORENZO ABOUT INDUCED PRIOR IN THIS CASE
         rcom_samples, theta_samples, phi_samples = cartesian2spherical(posterior_samples_x, posterior_samples_y, posterior_samples_z)
         dec_samples = 0.5 * np.pi - theta_samples
         redshift_samples = fast_z_at_value(COSMO.comoving_distance, rcom_samples * u.Mpc)
@@ -456,10 +450,16 @@ def make_skymaps_and_catalog(n_agn_events, fagn_idx, trial_idx):
 
     for _, infile in enumerate(glob.glob(f'{POST_SAMPS_DIR}/gw_{trial_idx}_{fagn_idx}_*.h5')):
         print(f'Processing: {infile}')
-        outfile = f'skymap_{trial_idx}_{fagn_idx}_{infile[-8:-3]}.fits.gz'
+        gw_idx = infile[-8:-3]
+
+        r, theta, phi = cartesian2spherical(true_x_gw[int(gw_idx)], true_y_gw[int(gw_idx)], true_z_gw[int(gw_idx)])
+        with open(f'true_r_theta_phi_{ID}.txt', 'a') as f:
+            f.write(f'{gw_idx}, {r}, {theta}, {phi}\n')
+
+        outfile = f'skymap_{trial_idx}_{fagn_idx}_{gw_idx}.fits.gz'
         print(f'Output: {SKYMAP_DIR}/{outfile}')
 
-        os.system(f"ligo-skymap-from-samples {infile} --fitsoutname {outfile} --outdir {SKYMAP_DIR} --jobs {os.cpu_count()}")
+        os.system(f"ligo-skymap-from-samples {infile} --fitsoutname {outfile} --outdir {SKYMAP_DIR} --jobs {NCPU}")
     
     os.system(f"rm -rf {SKYMAP_DIR}/skypost.obj")
     
@@ -514,7 +514,7 @@ def generate_and_process_universe_realization(fagn, fagn_idx, trial_idx):
     elif USE_ONLY_3DLOC:
 
         if not MAKE_SKYMAPS:
-            obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z = get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx)
+            _, _, _, obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z = get_observed_gw_3dloc_agn_catalog(n_agn_events, fagn_idx, trial_idx)
             return process_gw_3dloc(obs_gw_x, obs_gw_y, obs_gw_z, locvol_radius, locvol_sigmas, obs_agn_x, obs_agn_y, obs_agn_z)
         else:
             locvol_radius, obs_agn_x, obs_agn_y, obs_agn_z = make_skymaps_and_catalog(n_agn_events, fagn_idx, trial_idx)

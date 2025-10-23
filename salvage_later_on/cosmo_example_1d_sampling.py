@@ -2,11 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils import uniform_shell_sampler, make_nice_plots, fast_z_at_value, histogram_pdf
 from tqdm import tqdm
-from default_arguments import DEFAULT_COSMOLOGY
+from default_globals import *
 import astropy.units as u
 from scipy.integrate import quad, simpson
 from scipy.stats import gaussian_kde
-from astropy.constants import c
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from multiprocessing import cpu_count
 import time
@@ -16,7 +15,6 @@ import traceback
 make_nice_plots()
 
 ####################################################################
-SPEED_OF_LIGHT_KMS = c.to('km/s').value
 GW_DIST_ERR = 0.01  # Relative error
 COMDIST_MAX = 100  # Maximum comoving distance in Mpc
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
@@ -43,7 +41,6 @@ NGW_AGN = BATCH
 N_TRUE_FAGNS = min(BATCH + 1, MAX_N_FAGNS)  # Cannot create more f_agn values than BATCH+1 and don't want to generate more than MAX_N_FAGNS
 LOG_LLH_X_AX = np.linspace(0.0001, 0.9999, CALC_LOGLLH_AT_N_POINTS)
 
-COSMO = DEFAULT_COSMOLOGY
 ZMIN = 1e-4
 ZMAX = fast_z_at_value(COSMO.comoving_distance, COMDIST_MAX * u.Mpc)
 Z_INTEGRAL_AX = np.linspace(ZMIN, ZMAX, 1000)
