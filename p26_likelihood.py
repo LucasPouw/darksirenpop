@@ -9,7 +9,7 @@ import sys
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
 gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
-all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_1.txt', delimiter=',')
+all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
 all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
 true_source_identifiers = all_true_sources[:,0]
 
@@ -39,6 +39,9 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
 
     ### Make an incomplete AGN catalog from these coordinates ###
 
+    if not ASSUME_PERFECT_REDSHIFT:
+        _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
+
     incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift)
     agn_ra = agn_ra[incomplete_catalog_mask]
     agn_dec = agn_dec[incomplete_catalog_mask]
@@ -46,7 +49,34 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     agn_redshift_err = agn_redshift_err[incomplete_catalog_mask]
     obs_agn_rlum = obs_agn_rlum[incomplete_catalog_mask]
 
-    agn_posterior_dset, redshift_population_prior_normalization = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err)
+    agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
+    
+    if not ASSUME_PERFECT_REDSHIFT:    
+        redshift_agn_selection_function = sum_of_posteriors_incomplete / sum_of_posteriors_complete
+        c_per_zbin = redshift_agn_selection_function
+    
+    # plt.figure()
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, c_per_zbin)
+    # plt.show()
+
+    from utils import make_nice_plots
+    make_nice_plots()
+    plt.figure(figsize=(8,6))
+    # h, _, _ = plt.hist(obs_agn_redshift, bins=Z_EDGES, density=True, histtype='step', linewidth=5, label=r'$\langle z_{\rm obs} \rangle$')
+    # plt.hist(obs_agn_redshift, bins=10, histtype='step', linewidth=3)
+    # plt.hist(obs_agn_redshift[mask], bins=Z_EDGES, density=True, histtype='step', linewidth=3)
+    plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / ADD_NAGN_TO_CAT, linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
+    plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / ADD_NAGN_TO_CAT, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
+    plt.plot(S_AGN_Z_INTEGRAL_AX, redshift_agn_selection_function, linewidth=3, color='cyan', label=r'$f_{\rm c}(z)$')
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, UNIF_COMVOL(S_AGN_Z_INTEGRAL_AX), color='blue', label=r'$dV/dz$', linewidth=3)
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / UNIF_COMVOL(S_AGN_Z_INTEGRAL_AX) / ADD_NAGN_TO_CAT)
+    plt.vlines([ZMAX, AGN_ZCUT, AGN_ZMAX], ymin=0, ymax=1, color='black', linestyle='dashed', label='Edges')
+    plt.legend()
+    plt.xlabel('Redshift')
+    plt.ylabel('Completeness')
+    plt.grid()
+    plt.show()
+    sys.exit(1)
 
     ### Calculate the integrals in the likelihood ###
     
@@ -80,7 +110,7 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
                                                                 **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
         
-        if len(agn_rcom) != 0:
+        if len(agn_ra) != 0:
             sagn_cw *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
         # sagn_bin *= (4 * np.pi / redshift_population_prior_normalization)
 
@@ -105,6 +135,7 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
         print('Got NaNs:')
         print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
         print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
+        print((LOG_LLH_X_AX[None,:] * S_alt[:,None])[nans])
 
     # S_agn_cw_bin = S_agn_cw_bin[~np.isnan(S_agn_cw_bin)]
     # S_alt_cw_bin = S_alt_cw_bin[~np.isnan(S_alt_cw_bin)]
@@ -118,7 +149,8 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     # log_llh_bin[:,fagn_idx] = np.sum(loglike_bin, axis=0)  # sum over all GWs
     
     log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
-    print('Done.')
+    if VERBOSE:
+        print('Done.')
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 # np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME + '_binned.npy'), log_llh_bin)

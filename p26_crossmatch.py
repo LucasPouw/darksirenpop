@@ -7,9 +7,9 @@ from default_globals import *
 from redshift_utils import z_cut, merger_rate, uniform_comoving_prior, redshift_pdf_given_lumdist_pdf
 from utils import gaussian
 from numba import njit, prange
+from scipy.interpolate import interp1d
 # import matplotlib.pyplot as plt
 # from tqdm import tqdm
-# from scipy.interpolate import CubicSpline, interp1d
 # import time
 # import sys
 
@@ -111,23 +111,13 @@ def crossmatch_p26(agn_posterior_dset,
 
     cmap_nside = hp.npix2nside(len(completeness_map))
 
-    def redshift_completeness(z):
-        bin_idx = np.digitize(z, completeness_zedges) - 1
-        bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
-        return completeness_zvals[bin_idx.astype(np.int32)]
-    
-    # x = np.array([0])
-    # x = np.append(x, completeness_zedges + np.diff(completeness_zedges)[0] / 2)
-    # x[-1] -= np.diff(completeness_zedges)[0] / 2
-    # y = completeness_zvals[0]
-    # y = np.append(y, completeness_zvals)
-    # y = np.append(y, completeness_zvals[-1])
-    # redshift_completeness = interp1d(x, y, bounds_error=False)
-    
-    # plt.figure()
-    # plt.plot(s_agn_z_integral_ax, redshift_completeness(s_agn_z_integral_ax))
-    # plt.plot(s_agn_z_integral_ax, redshift_completeness(s_agn_z_integral_ax))
-    # plt.show()
+    if assume_perfect_redshift:
+        def redshift_completeness(z):
+            bin_idx = np.digitize(z, completeness_zedges) - 1
+            bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
+            return completeness_zvals[bin_idx.astype(np.int32)]
+    else:
+        redshift_completeness = interp1d(s_agn_z_integral_ax, completeness_zvals)
 
     sky_map = np.flipud(np.sort(sky_map, order="PROBDENSITY"))
     
@@ -137,7 +127,7 @@ def crossmatch_p26(agn_posterior_dset,
     sigma = sky_map["DISTSIGMA"]    # Ansatz width in Mpc
     norm = sky_map["DISTNORM"]      # Ansatz norm in 1/Mpc
 
-    if np.sum(np.isnan(dP_dA)) == len(dP_dA):
+    if np.sum(np.isnan(dP_dA)) > 0:
         print('BAD SKYMAP')
         return np.nan, np.nan, np.nan, np.nan, np.nan
 
@@ -235,27 +225,12 @@ def crossmatch_p26(agn_posterior_dset,
                 integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * agn_population_prior_unnorm
             
             S_agn_cw = romb(integrand * fc_of_z / PEprior * jacobian_sagn, dx=dz_Sagn)  # TODO: put fc_of_z inside loop when it can differ over the sky
+            
             # plt.figure()
             # plt.plot(s_agn_z_integral_ax, LOSzprior)
             # plt.plot(s_agn_z_integral_ax, gw_redshift_posterior_in_pix)
             # plt.plot(s_agn_z_integral_ax, integrand)
-            # plt.show()
-
-            # interp_integrand = CubicSpline(s_agn_z_integral_ax, integrand / PEprior)
-            # # plt.figure()
-            # # plt.plot(np.linspace(completeness_zedges[0], completeness_zedges[-1], 1025), interp_integrand(np.linspace(completeness_zedges[0], completeness_zedges[-1], 1025)))
-            # # plt.plot(s_agn_z_integral_ax, integrand / PEprior)
-            # # plt.show()
-            # S_agn_cw_binned = 0
-            # for i, c_in_bin in enumerate(completeness_zvals[:-1]):
-            #     z_low = completeness_zedges[i]
-            #     z_high = completeness_zedges[i + 1]
-
-            #     z_axis = np.linspace(z_low, z_high, 129)  # 65 should be enough, but let's get a margin on that for testing
-            #     # print(redshift_completeness(z_axis), c_in_bin)
-            #     S_agn_cw_binned += romb(interp_integrand(z_axis) * c_in_bin * 1, dx=np.diff(z_axis)[0])  # Hard-code linear axis for now, will never change it anyway xd
-            # # print(S_agn_cw, S_agn_cw_binned)
-                
+            # plt.show()                
     
     skymap_theta, skymap_phi = moc.uniq2ang(sky_map['UNIQ'])
     pix_idx = hp.ang2pix(cmap_nside, skymap_theta, skymap_phi, nest=True)
@@ -268,7 +243,6 @@ def crossmatch_p26(agn_posterior_dset,
 
     sky_coverage = np.sum(dA[surveyed]) / np.sum(dA)
     S_agn_cw *= sky_coverage
-    # S_agn_cw *= 0.375
 
     # S_alt = 1  # WHEN USING ONLY SKYLOC
     # S_alt_cw = np.sum(dP * cmap_vals_in_gw_skymap)  # WHEN USING ONLY SKYLOC
@@ -302,20 +276,6 @@ def crossmatch_p26(agn_posterior_dset,
     S_alt_cw = romb(y=gw_posterior_times_cw_alt_population_prior * jacobian_salt, dx=dz_Salt)
 
     S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
-
-
-
-    # interp_integrand_salt_cw = CubicSpline(s_alt_z_integral_ax, intermediate)
-    # S_alt_cw_binned = 0
-    # for i, c_in_bin in enumerate(completeness_zvals[:-1]):
-    #     z_low = completeness_zedges[i]
-    #     z_high = completeness_zedges[i + 1]
-
-    #     z_axis = np.linspace(z_low, z_high, 129)  # 65 should be enough, but let's get a margin on that for testing
-    #     # print(redshift_completeness(z_axis), c_in_bin)
-    #     val = romb(interp_integrand_salt_cw(z_axis) * c_in_bin * 1, dx=np.diff(z_axis)[0])  # Hard-code linear axis for now, will never change it anyway xd
-    #     S_alt_cw_binned += val
-    # print(S_alt_cw, S_alt_cw_binned)
 
     # S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
     S_agn_cw_binned = 1

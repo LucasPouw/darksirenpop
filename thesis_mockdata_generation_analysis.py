@@ -24,8 +24,6 @@ make_nice_plots()
 """
 AGN can scatter to negative comoving distances, though this is relatively rare: ~500 / 100k at sigma = 0.2 -- update: checked with truncnorm AGN errors between [0, inf) and AGN catalog up to 2xCOMDIST_MAX and no change in bias observed.
 Are LOS zpriors correctly calculated given the AGN posteriors with prior that includes p_rate(z > zmax) = 0 ?
-
-Are my posterior samples correct? No induced prior (Jacobian) that needs to be accounted for?
 """
 
 ########################### INPUT PARAMETERS #################################
@@ -34,6 +32,8 @@ ID = 'moc_10k_2'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 CAT_DIR = f'./catalogs_{ID}'
+
+NCPU = os.cpu_count()
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True
@@ -108,8 +108,6 @@ elif USE_ONLY_SKY:
     fname = f'posteriors_SKYMAP_CL_{SKYMAP_CL}_SKY_AREA_LOW_{SKY_AREA_LOW}_SKY_AREA_HIGH_{SKY_AREA_LOW}_NAGN_{NAGN}_BATCH_{BATCH}'
 elif USE_ONLY_3DLOC:
     fname = f'posteriors_SKYMAP_CL_{SKYMAP_CL}_AGNZERROR_{AGN_ZERROR}_NAGN_{NAGN}_BATCH_{BATCH}'
-
-NCPU = 24
 
 assert NAGN >= BATCH, f'Every AGN-origin GW must come from a unique AGN. Got {NAGN} AGN and {BATCH} AGN-origin GWs.'
 print(f'#AGN is rounded from {AGN_NUMDENS * VOLUME} to {NAGN}, giving a number density of {NAGN / VOLUME:.3e}. Target was {AGN_NUMDENS:.3e}.')

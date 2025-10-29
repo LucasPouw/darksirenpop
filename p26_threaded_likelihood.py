@@ -4,19 +4,19 @@ from utils import uniform_shell_sampler
 from ligo.skymap.io.fits import read_sky_map
 from p26_crossmatch import crossmatch_p26 as crossmatch
 import sys
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
 gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
-all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_1.txt', delimiter=',')
+all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
 all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
 true_source_identifiers = all_true_sources[:,0]
 
 
 def process_one_fagn(fagn_idx, fagn_true):
-    s = time.time()
+    # s = time.time()
     gw_fnames = gw_fnames_per_realization[:,fagn_idx]
 
     ### Get true source coordinates for GWs from AGN to put in the AGN catalog ###
@@ -25,8 +25,17 @@ def process_one_fagn(fagn_idx, fagn_true):
     gw_identifiers = sorted(np.array([f[-13:-8] for f in gw_fnames_from_agn]).astype(int))
     true_sources = all_true_sources[np.searchsorted(true_source_identifiers, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
+
+    ### Complete catalog to preserve uniform in comoving volume distribution ###
+    n2complete = int(round(len(agn_ra) * (AGN_COMDIST_MAX / COMDIST_MAX - 1)))
+    new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
+    ############################################################################
+
     if ADD_NAGN_TO_CAT:  # Add uncorrelated AGN as background
-        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT)
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT - n2complete)
         agn_ra = np.append(agn_ra, new_phi)
         agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
         agn_rcom = np.append(agn_rcom, new_rcom)
@@ -38,6 +47,9 @@ def process_one_fagn(fagn_idx, fagn_true):
 
     ### Make an incomplete AGN catalog from these coordinates ###
 
+    if not ASSUME_PERFECT_REDSHIFT:
+        _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
+
     incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift)
     agn_ra = agn_ra[incomplete_catalog_mask]
     agn_dec = agn_dec[incomplete_catalog_mask]
@@ -45,7 +57,11 @@ def process_one_fagn(fagn_idx, fagn_true):
     agn_redshift_err = agn_redshift_err[incomplete_catalog_mask]
     obs_agn_rlum = obs_agn_rlum[incomplete_catalog_mask]
 
-    agn_posterior_dset, redshift_population_prior_normalization = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err)
+    agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
+    
+    if not ASSUME_PERFECT_REDSHIFT:    
+        redshift_agn_selection_function = sum_of_posteriors_incomplete / sum_of_posteriors_complete
+        c_per_zbin = redshift_agn_selection_function
 
     ### Calculate the integrals in the likelihood ###
     
@@ -104,6 +120,7 @@ def process_one_fagn(fagn_idx, fagn_true):
         print('Got NaNs:')
         print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
         print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
+        print((LOG_LLH_X_AX[None,:] * S_alt[:,None])[nans])
     # print(f'\n{fagn_idx} Done in {time.time() - s}\n')
 
     return fagn_idx, np.sum(loglike, axis=0)
@@ -111,7 +128,7 @@ def process_one_fagn(fagn_idx, fagn_true):
 
 log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
 # log_llh_bin = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-with ProcessPoolExecutor(max_workers=16) as executor:  # 1 proc, 11.5s/it - 8 proc, 14.5s/it - 16 proc, 25s/it - 32 proc, 58s/it
+with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:  # 1 proc, 11.5s/it - 8 proc, 14.5s/it - 16 proc, 25s/it - 32 proc, 58s/it
     futures = [executor.submit(process_one_fagn, fagn_idx, fagn_true) for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS)]
     for future in tqdm(as_completed(futures)):
         fagn_idx, llh = future.result()
