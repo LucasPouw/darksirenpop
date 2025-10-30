@@ -90,6 +90,7 @@ def crossmatch_p26(agn_posterior_dset,
                     gw_zcut,
                     merger_rate_func, 
                     linax,
+                    realdata,
                     **merger_rate_kwargs):
 
     # agn_redshift_err is only needed as argument for this assertion, could remove it.
@@ -111,7 +112,7 @@ def crossmatch_p26(agn_posterior_dset,
 
     cmap_nside = hp.npix2nside(len(completeness_map))
 
-    if assume_perfect_redshift:
+    if assume_perfect_redshift or realdata:
         def redshift_completeness(z):
             bin_idx = np.digitize(z, completeness_zedges) - 1
             bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1

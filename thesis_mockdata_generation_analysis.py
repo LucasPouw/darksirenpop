@@ -28,7 +28,7 @@ Are LOS zpriors correctly calculated given the AGN posteriors with prior that in
 
 ########################### INPUT PARAMETERS #################################
 MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
-ID = 'moc_10k_2'
+ID = '3'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 CAT_DIR = f'./catalogs_{ID}'

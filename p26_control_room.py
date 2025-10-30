@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from scipy.integrate import romb
 from scipy import stats
 import healpy as hp
-from redshift_utils import z_cut, merger_rate_madau, merger_rate_uniform, merger_rate, uniform_comoving_prior, fast_z_at_value, redshift_pdf_given_lumdist_pdf
+from redshift_utils import z_cut, merger_rate_madau, merger_rate_uniform, merger_rate, uniform_comoving_prior, fast_z_at_value
 import pandas as pd
 import time
 import glob
@@ -24,72 +24,62 @@ import glob
 os.environ["OMP_NUM_THREADS"] = "1"
 N_WORKERS = 16
 
-VERBOSE = False
+VERBOSE = True
 
-N_REALIZATIONS = 100
-BATCH = 160  #len(np.array(glob.glob(SKYMAP_DIR + 'skymap_*')))
+N_REALIZATIONS = 200
+BATCH = 85  #len(np.array(glob.glob(SKYMAP_DIR + 'skymap_*')))
 TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 REALIZED_FAGNS = np.random.binomial(BATCH, TRUE_FAGNS) / BATCH  # Observed f_agn fluctuates around the true value
 N_TRUE_FAGNS = len(TRUE_FAGNS)
 
-FAGN_POSTERIOR_FNAME = 'p26_likelihood_posteriors'
 CMAP_PATH = "./completeness_map.fits"
 DIRECTORY_ID = 'all'
 SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
 SKYMAP_CL = 0.999
 
+AGN_ZMAX = 10.  # Maximum true redshift for AGN
+AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
+
 # Quaia completeness (rows = bins, cols = thresholds)
 THRESHOLD_MAP = {"46.5": 0, "46.0": 1, "45.5": 2, "45.0": 3, "44.5": 4}
+Z_EDGES = np.array([0.0000, 0.1875, 0.3750, 0.5625, 0.7500, 0.9375, 1.1250, 1.3125, 1.5000, AGN_ZCUT, AGN_ZMAX])
+QUAIA_C_VALS = np.array([
+                    [0.000, 0.000, 0.229, 0.945, 0.718],
+                    [1.000, 1.000, 1.000, 1.000, 0.781],
+                    [1.000, 1.000, 1.000, 1.000, 0.408],
+                    [1.000, 0.891, 1.000, 0.681, 0.211],
+                    [1.000, 1.000, 0.994, 0.429, 0.138],
+                    [1.000, 1.000, 0.837, 0.258, 0.085],
+                    [0.927, 0.940, 0.576, 0.179, 0.060],
+                    [1.000, 1.000, 0.482, 0.155, 0.053],
+                    [1.000, 1.000, 0.482, 0.155, 0.053],  # TESTING: Do not change the completeness between zcut,gw and zcut,agn
+                    [0., 0., 0., 0., 0.]
+                ])
+# Z_EDGES = np.array([0., 0.75, AGN_ZCUT, AGN_ZMAX])
 # QUAIA_C_VALS = np.array([
-#                     [0.000, 0.000, 0.229, 0.945, 0.718],
-#                     [1.000, 1.000, 1.000, 1.000, 0.781],
-#                     [1.000, 1.000, 1.000, 1.000, 0.408],
-#                     [1.000, 0.891, 1.000, 0.681, 0.211],
-#                     [1.000, 1.000, 0.994, 0.429, 0.138],
-#                     [1.000, 1.000, 0.837, 0.258, 0.085],
-#                     [0.927, 0.940, 0.576, 0.179, 0.060],
-#                     [1.000, 1.000, 0.482, 0.155, 0.053],
-#                     [1.000, 1.000, 0.482, 0.155, 0.053],  # TESTING: Do not change the completeness between zcut,gw and zcut,agn
-#                     [0., 0., 0., 0., 0.]
-#                 ])
-
-# Z_EDGES = np.array([0.0000, 0.1875, 0.3750, 0.5625, 0.7500, 0.9375, 1.1250, 1.3125, 1.5000, AGN_ZCUT, AGN_ZMAX])
-# QUAIA_C_VALS = np.array([
-#                     [0.229],
-#                     [1.000],
-#                     [1.000],
-#                     [1.000],
-#                     [0.994],
-#                     [0.837],
-#                     [0.576],
-#                     [0.482],
-#                     [0.3],  # Unknown as of yet
+#                     [0.7],
+#                     [1.],
 #                     [0.]
 #                 ])
-AGN_ZMAX = 10.  # Maximum true redshift for AGN
-AGN_ZCUT = 2  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
-Z_EDGES = np.array([0., AGN_ZCUT, AGN_ZMAX])
-QUAIA_C_VALS = np.array([
-                    [1.],
-                    [0.]
-                ])
-LUM_THRESH = '46.5'  # str or False
-MASK_GALACTIC_PLANE = False
+LUM_THRESH = '45.0'  # str or False
+MASK_GALACTIC_PLANE = True
 PLOT_CMAP = False
 CMAP_NSIDE = 64
 
-ADD_NAGN_TO_CAT = int(1e3)
+ADD_NAGN_TO_CAT = int(1e4)
 ASSUME_PERFECT_REDSHIFT = False
-AGN_ZERROR = 0.5  # 0, float or 'quaia'
+AGN_ZERROR = 'quaia'
 if AGN_ZERROR == 'quaia':
     quaia_errors = pd.read_csv("./Quaia_z15.csv")["redshift_quaia_err"]  # Load into memory and sample later
+
+FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}'
 
 MERGER_RATE_EVOLUTION = merger_rate_uniform
 MERGER_RATE_KWARGS = {}
 
 ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
 ZMAX = 1.5   # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0
-# assert AGN_ZMAX >= ZMAX, 'Need AGN at least as deep as GWs can go, otherwise the population prior is not evaluated on the correct axis.'  # Don't think this is true
+# assert AGN_ZMAX >= ZMAX, 'Need AGN at least as deep as GWs can go, otherwise the population prior is not evaluated on the correct axis.'  # Don't think this is true anymore
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value
 AGN_COMDIST_MAX = COSMO.comoving_distance(AGN_ZMAX).value
@@ -104,10 +94,6 @@ if not ASSUME_PERFECT_REDSHIFT:
         smallest_error = AGN_ZERROR
     npoints = int(2**np.ceil(np.log2(10 * (AGN_ZMAX - ZMIN) / smallest_error)))  # Enforces at least 10 points within 1 sigma in normalization of AGN posteriors -> 
     AGN_POSTERIOR_NORM_AX = np.linspace(ZMIN, AGN_ZMAX, npoints + 1)
-
-
-# from scipy.interpolate import interp1d
-# UNIF_COMVOL = interp1d(AGN_POSTERIOR_NORM_AX, uniform_comoving_prior(AGN_POSTERIOR_NORM_AX) / romb(uniform_comoving_prior(AGN_POSTERIOR_NORM_AX), dx=np.diff(AGN_POSTERIOR_NORM_AX)[0]))
 
 
 def get_observed_redshift_from_rcom(agn_rcom):
@@ -254,7 +240,7 @@ def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err):
     return
 
 
-def get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label):
+def get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label, replace_old_file=True):
     '''
     To save computation time, the AGN posteriors are calculated and evaluated on the z-integral axis once and kept in memory.
 
@@ -268,10 +254,11 @@ def get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_
     else:
         posterior_path = f'./precompute_posteriors/agn_posteriors_precompute_{fagn_idx}_{label}.hdf5'
 
-        if os.path.exists(posterior_path):
+        if not os.path.exists(posterior_path):
+            compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
+        elif os.path.exists(posterior_path) & replace_old_file:
             os.remove(posterior_path)
-
-        compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
+            compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
 
         # Keep ~few GB in memory, this is typically faster than reading random slices
         with h5py.File(posterior_path, "r") as f:

@@ -26,8 +26,17 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     gw_identifiers = sorted(np.array([f[-13:-8] for f in gw_fnames_from_agn]).astype(int))
     true_sources = all_true_sources[np.searchsorted(true_source_identifiers, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
+
+    ### Complete catalog to preserve uniform in comoving volume distribution ###
+    n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
+    new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
+    ############################################################################
+
     if ADD_NAGN_TO_CAT:  # Add uncorrelated AGN as background
-        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT)
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT - n2complete)
         agn_ra = np.append(agn_ra, new_phi)
         agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
         agn_rcom = np.append(agn_rcom, new_rcom)
@@ -59,24 +68,22 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     # plt.plot(S_AGN_Z_INTEGRAL_AX, c_per_zbin)
     # plt.show()
 
-    from utils import make_nice_plots
-    make_nice_plots()
-    plt.figure(figsize=(8,6))
-    # h, _, _ = plt.hist(obs_agn_redshift, bins=Z_EDGES, density=True, histtype='step', linewidth=5, label=r'$\langle z_{\rm obs} \rangle$')
-    # plt.hist(obs_agn_redshift, bins=10, histtype='step', linewidth=3)
-    # plt.hist(obs_agn_redshift[mask], bins=Z_EDGES, density=True, histtype='step', linewidth=3)
-    plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / ADD_NAGN_TO_CAT, linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
-    plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / ADD_NAGN_TO_CAT, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
-    plt.plot(S_AGN_Z_INTEGRAL_AX, redshift_agn_selection_function, linewidth=3, color='cyan', label=r'$f_{\rm c}(z)$')
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, UNIF_COMVOL(S_AGN_Z_INTEGRAL_AX), color='blue', label=r'$dV/dz$', linewidth=3)
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / UNIF_COMVOL(S_AGN_Z_INTEGRAL_AX) / ADD_NAGN_TO_CAT)
-    plt.vlines([ZMAX, AGN_ZCUT, AGN_ZMAX], ymin=0, ymax=1, color='black', linestyle='dashed', label='Edges')
-    plt.legend()
-    plt.xlabel('Redshift')
-    plt.ylabel('Completeness')
-    plt.grid()
-    plt.show()
-    sys.exit(1)
+    # from utils import make_nice_plots
+    # make_nice_plots()
+    # plt.figure(figsize=(8,6))
+    # # h, _, _ = plt.hist(obs_agn_redshift, bins=Z_EDGES, density=True, histtype='step', linewidth=5, label=r'$\langle z_{\rm obs} \rangle$')
+    # # plt.hist(obs_agn_redshift, bins=10, histtype='step', linewidth=3)
+    # # plt.hist(obs_agn_redshift[mask], bins=Z_EDGES, density=True, histtype='step', linewidth=3)
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / ADD_NAGN_TO_CAT, linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / ADD_NAGN_TO_CAT, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, redshift_agn_selection_function, linewidth=3, color='cyan', label=r'$f_{\rm c}(z)$')
+    # plt.vlines([ZMAX, AGN_ZCUT, AGN_ZMAX], ymin=0, ymax=1, color='black', linestyle='dashed', label='Edges')
+    # plt.legend()
+    # plt.xlabel('Redshift')
+    # plt.ylabel('Completeness')
+    # plt.grid()
+    # plt.show()
+    # sys.exit(1)
 
     ### Calculate the integrals in the likelihood ###
     

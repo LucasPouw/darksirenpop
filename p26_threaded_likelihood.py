@@ -27,7 +27,7 @@ def process_one_fagn(fagn_idx, fagn_true):
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
     ### Complete catalog to preserve uniform in comoving volume distribution ###
-    n2complete = int(round(len(agn_ra) * (AGN_COMDIST_MAX / COMDIST_MAX - 1)))
+    n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
     new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
     agn_ra = np.append(agn_ra, new_phi)
     agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
