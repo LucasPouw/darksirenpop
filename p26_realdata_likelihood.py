@@ -9,6 +9,7 @@ from scipy.integrate import simpson
 
 CATALOG_PATH = "/home/lucas/Documents/PhD/Quaia_z15.csv"
 SKYMAP_JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
+
 fagn_idx = 0
 with open(SKYMAP_JSON_PATH, "r") as f:
     gw_path_dict = json.load(f)
@@ -24,13 +25,13 @@ loglbol_corr   = data["loglbol_corr"].to_numpy()
 outside_galactic_plane = np.logical_or((b > 10), (b < -10))
 above_lbol_thresh = loglbol_corr >= float(LUM_THRESH)
 
-b = b[outside_galactic_plane & above_lbol_thresh]
-loglbol_corr = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
+b                  = b[outside_galactic_plane & above_lbol_thresh]
+loglbol_corr       = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
 agn_redshift       = data["redshift_quaia"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
 agn_redshift_err   = data["redshift_quaia_err"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
 agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
 agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
-agn_rlum = COSMO.luminosity_distance(agn_redshift).value
+agn_rlum           = COSMO.luminosity_distance(agn_redshift).value
 
 agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, agn_redshift, agn_redshift_err, label=LUM_THRESH, replace_old_file=False)
 _, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, agn_rlum, agn_redshift)  # Quaia is already redshift incomplete, but convenient to get completeness maps this way
@@ -77,9 +78,9 @@ for gw_idx, key in enumerate(gw_keys):
         if sagn_cw > salt_cw:
             print('!!! HIGHER AGN PROB !!!')
 
-np.save(f's_agn_cw_dict_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}.npy', S_agn_cw_dict)
-np.save(f's_alt_cw_dict_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}.npy', S_alt_cw_dict)
-np.save(f's_alt_dict_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}.npy', S_alt_dict)
+np.save(f's_agn_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_cw_dict)
+np.save(f's_alt_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_cw_dict)
+np.save(f's_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
 
 S_agn_cw = np.array([S_agn_cw_dict[key] for key in gw_keys])
 S_alt_cw = np.array([S_alt_cw_dict[key] for key in gw_keys])

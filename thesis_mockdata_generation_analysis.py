@@ -28,12 +28,12 @@ Are LOS zpriors correctly calculated given the AGN posteriors with prior that in
 
 ########################### INPUT PARAMETERS #################################
 MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
-ID = '3'
+ID = '8'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 CAT_DIR = f'./catalogs_{ID}'
 
-NCPU = os.cpu_count()
+NCPU = 30#os.cpu_count()
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True

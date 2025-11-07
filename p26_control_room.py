@@ -26,8 +26,8 @@ N_WORKERS = 16
 
 VERBOSE = True
 
-N_REALIZATIONS = 200
-BATCH = 85  #len(np.array(glob.glob(SKYMAP_DIR + 'skymap_*')))
+N_REALIZATIONS = 1
+BATCH = len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
 TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 REALIZED_FAGNS = np.random.binomial(BATCH, TRUE_FAGNS) / BATCH  # Observed f_agn fluctuates around the true value
 N_TRUE_FAGNS = len(TRUE_FAGNS)
@@ -42,7 +42,7 @@ AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above wh
 
 # Quaia completeness (rows = bins, cols = thresholds)
 THRESHOLD_MAP = {"46.5": 0, "46.0": 1, "45.5": 2, "45.0": 3, "44.5": 4}
-Z_EDGES = np.array([0.0000, 0.1875, 0.3750, 0.5625, 0.7500, 0.9375, 1.1250, 1.3125, 1.5000, AGN_ZCUT, AGN_ZMAX])
+Z_EDGES = np.array([0.0000, 0.1875, 0.3750, 0.5625, 0.7500, 0.9375, 1.1250, 1.3125, AGN_ZCUT, AGN_ZMAX])
 QUAIA_C_VALS = np.array([
                     [0.000, 0.000, 0.229, 0.945, 0.718],
                     [1.000, 1.000, 1.000, 1.000, 0.781],
@@ -52,27 +52,29 @@ QUAIA_C_VALS = np.array([
                     [1.000, 1.000, 0.837, 0.258, 0.085],
                     [0.927, 0.940, 0.576, 0.179, 0.060],
                     [1.000, 1.000, 0.482, 0.155, 0.053],
-                    [1.000, 1.000, 0.482, 0.155, 0.053],  # TESTING: Do not change the completeness between zcut,gw and zcut,agn
                     [0., 0., 0., 0., 0.]
                 ])
-# Z_EDGES = np.array([0., 0.75, AGN_ZCUT, AGN_ZMAX])
-# QUAIA_C_VALS = np.array([
-#                     [0.7],
-#                     [1.],
-#                     [0.]
-#                 ])
-LUM_THRESH = '45.0'  # str or False
+LUM_THRESH = '45.5'  #'45.5'  # str or False for complete catalog
 MASK_GALACTIC_PLANE = True
 PLOT_CMAP = False
 CMAP_NSIDE = 64
 
-ADD_NAGN_TO_CAT = int(1e4)
+ADD_NAGN_TO_CAT = int(1e4)  # Lower bound, since we prioritize a uniform map, which may require more AGN
 ASSUME_PERFECT_REDSHIFT = False
 AGN_ZERROR = 'quaia'
 if AGN_ZERROR == 'quaia':
-    quaia_errors = pd.read_csv("./Quaia_z15.csv")["redshift_quaia_err"]  # Load into memory and sample later
+    quaia_errors = pd.read_csv("/home/lucas/Documents/PhD/Quaia_z15.csv")["redshift_quaia_err"]  # Load into memory and sample later
 
-FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}'
+REAL_DATA = False
+if REAL_DATA:
+    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_skymapCL_{SKYMAP_CL}'
+else:
+    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_addAGN_{ADD_NAGN_TO_CAT}_nrealizations_{N_REALIZATIONS}_batch_{BATCH}_skymapCL_{SKYMAP_CL}'
+inp = None
+while inp not in ['y', 'Y', 'yes', 'Yes', 'n', 'N', 'no', 'No']:
+    inp = input('Have you changed the posterior filename? (y/n)')
+if inp not in ['y', 'Y', 'yes', 'Yes']:
+    sys.exit('Please adjust the posterior filename accordingly.') 
 
 MERGER_RATE_EVOLUTION = merger_rate_uniform
 MERGER_RATE_KWARGS = {}
@@ -184,7 +186,7 @@ def make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift):
     c_per_zbin, redshift_incomplete_mask = make_redshift_selection(obs_agn_redshift)  # Making a redshift-incomplete catalog
     latitude_mask, completeness_map = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
     if ASSUME_PERFECT_REDSHIFT:
-        incomplete_catalog_mask = (latitude_mask & redshift_incomplete_mask & (obs_agn_redshift < ZMAX))
+        incomplete_catalog_mask = (latitude_mask & redshift_incomplete_mask & (obs_agn_redshift < ZMAX))  # Only AGN below ZMAX will 
         if VERBOSE:
             print(f'Observed {np.sum(incomplete_catalog_mask)} AGN from realizations, all below GW_ZMAX since we assume a perfect AGN redshift so those above do not contribute. Average completeness below GW_ZMAX: {np.sum(obs_agn_redshift[incomplete_catalog_mask] < ZMAX) / np.sum(obs_agn_redshift < ZMAX):.5f}')
     else:

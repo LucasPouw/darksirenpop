@@ -7,7 +7,22 @@ import sys
 
 
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
-gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
+# gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
+
+
+
+gw_fnames_per_realization = []
+keys = []
+for i, file in enumerate(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat')):
+    keys.append(file[-9:-4])
+for gw_fnames in all_gw_fnames:
+    key = gw_fnames[-13:-8]
+    if key in keys:
+        gw_fnames_per_realization.append(gw_fnames)
+gw_fnames_per_realization = np.atleast_2d(gw_fnames_per_realization).T
+print(gw_fnames_per_realization.shape)    
+
+
 
 all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
 all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
@@ -33,9 +48,13 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     agn_ra = np.append(agn_ra, new_phi)
     agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
     agn_rcom = np.append(agn_rcom, new_rcom)
+    if VERBOSE:
+        print(f'Adding {n2complete} AGN to get a uniform catalog.')
     ############################################################################
 
-    if ADD_NAGN_TO_CAT:  # Add uncorrelated AGN as background
+    if ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
+        if VERBOSE:
+            print(f'Adding {ADD_NAGN_TO_CAT - n2complete} more AGN to get to the requested number of AGN.')
         new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT - n2complete)
         agn_ra = np.append(agn_ra, new_phi)
         agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
@@ -49,7 +68,11 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     ### Make an incomplete AGN catalog from these coordinates ###
 
     if not ASSUME_PERFECT_REDSHIFT:
-        _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
+        if MASK_GALACTIC_PLANE:
+            latitude_mask, _ = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift[latitude_mask], agn_redshift_err[latitude_mask], label='COMPLETE')
+        else:
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
 
     incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift)
     agn_ra = agn_ra[incomplete_catalog_mask]
@@ -74,8 +97,9 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     # # h, _, _ = plt.hist(obs_agn_redshift, bins=Z_EDGES, density=True, histtype='step', linewidth=5, label=r'$\langle z_{\rm obs} \rangle$')
     # # plt.hist(obs_agn_redshift, bins=10, histtype='step', linewidth=3)
     # # plt.hist(obs_agn_redshift[mask], bins=Z_EDGES, density=True, histtype='step', linewidth=3)
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / ADD_NAGN_TO_CAT, linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete / ADD_NAGN_TO_CAT, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / romb(sum_of_posteriors_complete, dx=np.diff(S_AGN_Z_INTEGRAL_AX)[0]), linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
+    # # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
+    # plt.plot(S_AGN_Z_INTEGRAL_AX, uniform_comoving_prior(S_AGN_Z_INTEGRAL_AX) / romb(uniform_comoving_prior(S_AGN_Z_INTEGRAL_AX), dx=np.diff(S_AGN_Z_INTEGRAL_AX)[0]))
     # plt.plot(S_AGN_Z_INTEGRAL_AX, redshift_agn_selection_function, linewidth=3, color='cyan', label=r'$f_{\rm c}(z)$')
     # plt.vlines([ZMAX, AGN_ZCUT, AGN_ZMAX], ymin=0, ymax=1, color='black', linestyle='dashed', label='Edges')
     # plt.legend()
@@ -90,6 +114,14 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     S_agn_cw = np.zeros(BATCH)
     S_alt_cw = np.zeros(BATCH)
     S_alt = np.zeros(BATCH)
+
+
+
+    S_agn_cw_dict = {}
+    S_alt_cw_dict = {}
+    S_alt_dict = {}
+    from_agn_dict = {}
+
 
     # S_agn_cw_bin = np.zeros(BATCH)
     # S_alt_cw_bin = np.zeros(BATCH)
@@ -115,6 +147,7 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
                                                                 assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
                                                                 merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                                realdata=False,
                                                                 **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
         
         if len(agn_ra) != 0:
@@ -124,6 +157,18 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
         S_agn_cw[gw_idx] = sagn_cw
         S_alt_cw[gw_idx] = salt_cw
         S_alt[gw_idx] = salt
+
+
+        key = filename[-13:-8]
+        S_agn_cw_dict[key] = sagn_cw
+        S_alt_cw_dict[key] = salt_cw
+        S_alt_dict[key] = salt
+
+        if int(key) in gw_identifiers:
+            from_agn_dict[key] = True
+        else:
+            from_agn_dict[key] = False
+
 
         # S_agn_cw_bin[gw_idx] = sagn_bin
         # S_alt_cw_bin[gw_idx] = salt_bin
@@ -161,3 +206,11 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 # np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME + '_binned.npy'), log_llh_bin)
+
+
+
+
+np.save(f's_agn_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_cw_dict)
+np.save(f's_alt_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_cw_dict)
+np.save(f's_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
+np.save(f'from_agn_dict_{FAGN_POSTERIOR_FNAME}.npy', from_agn_dict)

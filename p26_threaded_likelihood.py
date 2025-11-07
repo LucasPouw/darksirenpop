@@ -32,9 +32,13 @@ def process_one_fagn(fagn_idx, fagn_true):
     agn_ra = np.append(agn_ra, new_phi)
     agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
     agn_rcom = np.append(agn_rcom, new_rcom)
+    if VERBOSE:
+        print(f'Adding {n2complete} AGN to get a uniform catalog.')
     ############################################################################
 
-    if ADD_NAGN_TO_CAT:  # Add uncorrelated AGN as background
+    if ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
+        if VERBOSE:
+            print(f'Adding {ADD_NAGN_TO_CAT - n2complete} more AGN to get to the requested number of AGN.')
         new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT - n2complete)
         agn_ra = np.append(agn_ra, new_phi)
         agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
@@ -48,7 +52,12 @@ def process_one_fagn(fagn_idx, fagn_true):
     ### Make an incomplete AGN catalog from these coordinates ###
 
     if not ASSUME_PERFECT_REDSHIFT:
-        _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
+        # Measure completeness in the surveyed sky area
+        if MASK_GALACTIC_PLANE:
+            latitude_mask, _ = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift[latitude_mask], agn_redshift_err[latitude_mask], label='COMPLETE')
+        else:
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
 
     incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift)
     agn_ra = agn_ra[incomplete_catalog_mask]
@@ -93,6 +102,7 @@ def process_one_fagn(fagn_idx, fagn_true):
                                                                 assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
                                                                 merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                                realdata=False,
                                                                 **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
 
         if len(agn_ra) != 0:

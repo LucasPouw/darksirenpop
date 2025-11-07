@@ -13,3 +13,4 @@ agn_posteriors_precompute*
 *.fits
 skymaps_moc*
 *.pdf
+*.hdf5
