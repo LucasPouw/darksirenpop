@@ -76,8 +76,7 @@ def LOS_lumdist_ansatz(dl, distnorm, distmu, distsigma):
 def crossmatch_p26(agn_posterior_dset, 
                     sky_map,
                     completeness_map,
-                    completeness_zedges,
-                    completeness_zvals,
+                    redshift_completeness,
                     agn_ra, 
                     agn_dec, 
                     agn_lumdist,  # agn_lumdist is only needed for speed up of s_agn_cw when assume_perfect_redshift = True - is it worth the added complexity?
@@ -85,40 +84,25 @@ def crossmatch_p26(agn_posterior_dset,
                     skymap_cl, 
                     agn_redshift_err, 
                     assume_perfect_redshift, 
-                    s_agn_z_integral_ax, 
-                    s_alt_z_integral_ax,
+                    z_integral_ax,
                     gw_zcut,
                     merger_rate_func, 
                     linax,
-                    realdata,
+                    background_agn_distribution,
                     **merger_rate_kwargs):
 
     # agn_redshift_err is only needed as argument for this assertion, could remove it.
     if not assume_perfect_redshift:
-        maxdiff = np.max(np.diff(s_agn_z_integral_ax))
+        maxdiff = np.max(np.diff(z_integral_ax))
         thresh = np.min(agn_redshift_err) #/ 10
         assert maxdiff < thresh, f'LOS zprior resolution is too coarse to capture AGN distribution fully: Got {maxdiff} need {thresh}'
 
     if linax:
-        dz_Sagn = np.diff(s_agn_z_integral_ax)[0]
-        dz_Salt = np.diff(s_alt_z_integral_ax)[0]
-        jacobian_sagn = 1
-        jacobian_salt = 1
+        dz = np.diff(z_integral_ax)[0]
+        jacobian = 1
     else:
-        dz_Sagn = np.diff(np.log10(s_agn_z_integral_ax))[0]
-        dz_Salt = np.diff(np.log10(s_alt_z_integral_ax))[0]
-        jacobian_sagn = s_agn_z_integral_ax * np.log(10)
-        jacobian_salt = s_alt_z_integral_ax * np.log(10)
-
-    cmap_nside = hp.npix2nside(len(completeness_map))
-
-    if assume_perfect_redshift or realdata:
-        def redshift_completeness(z):
-            bin_idx = np.digitize(z, completeness_zedges) - 1
-            bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
-            return completeness_zvals[bin_idx.astype(np.int32)]
-    else:
-        redshift_completeness = interp1d(s_agn_z_integral_ax, completeness_zvals)
+        dz = np.diff(np.log10(z_integral_ax))[0]
+        jacobian = z_integral_ax * np.log(10)
 
     sky_map = np.flipud(np.sort(sky_map, order="PROBDENSITY"))
     
@@ -153,7 +137,14 @@ def crossmatch_p26(agn_posterior_dset,
     # Getting only relevant AGN and pixels from the skymap
     agn_within_cl_mask = (searched_prob_at_agn_locs <= skymap_cl)
     nagn_within_cl = np.sum(agn_within_cl_mask)
+
+    # No reason to evaluate these multiple times -- unless you want to make the rate different for the AGN and ALT origins, which is not an option yet (TODO?)
+    PEprior = uniform_comoving_prior(z_integral_ax)
+    fc_of_z = redshift_completeness(z_integral_ax)  # TODO: make different for each AGN
+    zcut = z_cut(z_integral_ax, zcut=gw_zcut)
+    zrate = merger_rate(z_integral_ax, merger_rate_func, **merger_rate_kwargs)
     
+    # Calculate int dz p(z|d_gw)/PEprior(z) * p_pop(z | A, G)
     if nagn_within_cl == 0:
         # print(f'No AGN found within {skymap_cl} CL')
         S_agn_cw = 0.
@@ -200,20 +191,16 @@ def crossmatch_p26(agn_posterior_dset,
 
 
         else:  # AGN have z-errors, need to use their full posteriors
-            PEprior = uniform_comoving_prior(s_agn_z_integral_ax)
-            fc_of_z = redshift_completeness(s_agn_z_integral_ax)  # TODO: make different for each AGN
-            zcut = z_cut(s_agn_z_integral_ax, zcut=gw_zcut)
-            zrate = merger_rate(s_agn_z_integral_ax, merger_rate_func, **merger_rate_kwargs)
 
             # Vectorized evaluation of the GW posteriors for all unique relevant pixels - need sufficient RAM to comfortably handle arrays of (npix with agn)*len(z-array) elements
-            gw_redshift_posterior_in_allpix = redshift_pdf_given_lumdist_pdf(s_agn_z_integral_ax[:,np.newaxis], LOS_lumdist_ansatz, distnorm=distnorm_allpix, distmu=distmu_allpix, distsigma=distsigma_allpix)
+            gw_redshift_posterior_in_allpix = redshift_pdf_given_lumdist_pdf(z_integral_ax[:,np.newaxis], LOS_lumdist_ansatz, distnorm=distnorm_allpix, distmu=distmu_allpix, distsigma=distsigma_allpix)
             
             # Loading the AGN posteriors
             agn_redshift_posteriors_in_gw = agn_posterior_dset[agn_within_cl_mask,:]
             agn_posterior_idx = np.arange(nagn_within_cl)
 
-            integrand = np.zeros_like(s_agn_z_integral_ax)
-            # LOSzprior = np.zeros_like(s_agn_z_integral_ax)  # For plotting
+            integrand = np.zeros_like(z_integral_ax)
+            # LOSzprior = np.zeros_like(z_integral_ax)  # For plotting
             for i, gw_idx in enumerate(unique_gw_pixidx_containing_agn):
                 gw_redshift_posterior_in_pix = gw_redshift_posterior_in_allpix[:, i].flatten()
 
@@ -225,15 +212,16 @@ def crossmatch_p26(agn_posterior_dset,
                 # LOSzprior += agn_population_prior_unnorm
                 integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * agn_population_prior_unnorm
             
-            S_agn_cw = romb(integrand * fc_of_z / PEprior * jacobian_sagn, dx=dz_Sagn)  # TODO: put fc_of_z inside loop when it can differ over the sky
+            S_agn_cw = romb(integrand * fc_of_z / PEprior * jacobian, dx=dz)  # TODO: put fc_of_z inside loop when it can differ over the sky
             
             # plt.figure()
-            # plt.plot(s_agn_z_integral_ax, LOSzprior)
-            # plt.plot(s_agn_z_integral_ax, gw_redshift_posterior_in_pix)
-            # plt.plot(s_agn_z_integral_ax, integrand)
+            # plt.plot(z_integral_ax, LOSzprior)
+            # plt.plot(z_integral_ax, gw_redshift_posterior_in_pix)
+            # plt.plot(z_integral_ax, integrand)
             # plt.show()                
     
     skymap_theta, skymap_phi = moc.uniq2ang(sky_map['UNIQ'])
+    cmap_nside = hp.npix2nside(len(completeness_map))
     pix_idx = hp.ang2pix(cmap_nside, skymap_theta, skymap_phi, nest=True)
 
     pixprob_within_cl = (cumprob <= skymap_cl)
@@ -255,31 +243,42 @@ def crossmatch_p26(agn_posterior_dset,
                                                                                     norm=norm[skyprob_nonzero & pixprob_within_cl], 
                                                                                     mu=mu[skyprob_nonzero & pixprob_within_cl], 
                                                                                     sigma=sigma[skyprob_nonzero & pixprob_within_cl])
+    gw_redshift_posterior_marginalized_evaluated = gw_redshift_posterior_marginalized(z_integral_ax)
 
+    # Weight with sky completeness (currently only 1 for surveyed and 0 for not surveyed)
     gw_redshift_posterior_marginalized_cw = lambda z: redshift_pdf_given_lumdist_pdf(z, 
                                                                                     allsky_marginal_lumdist_distribution, 
                                                                                     dP=dP[surveyed & skyprob_nonzero & pixprob_within_cl],
                                                                                     norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl], 
                                                                                     mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl], 
                                                                                     sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl])
-
-    # WARNING: THESE LINES HAVE TO BE RETHOUGHT ONCE THE BACKGROUND DISTRIBUTION IS NOT UNIFORM IN COMOVING VOLUME LIKE THE PARAMETER ESTIMATION PRIOR -> use the population distribution in the population prior and divide gw posterior by uniform in comvol later
-    alt_redshift_population_prior_rate_weighted = merger_rate(s_alt_z_integral_ax, merger_rate_func, **merger_rate_kwargs) * z_cut(s_alt_z_integral_ax, zcut=gw_zcut)  # Uniform in comvol prior divides out against parameter estimation prior, but has to be present still in the normalization of the population prior.
     
-    alt_redshift_population_prior_rate_weighted /= romb(uniform_comoving_prior(s_alt_z_integral_ax) * alt_redshift_population_prior_rate_weighted * jacobian_salt, dx=dz_Salt)
+    # int dz p(z|d_gw)/PEprior(z) * p_pop(z | \conj{A}, \conj{G}): unif in comvol
+    background_alt_distribution = PEprior.copy()  # Uniform in comoving volume, just like PEprior!
+    alt_redshift_population_prior = background_alt_distribution * merger_rate(z_integral_ax, merger_rate_func, **merger_rate_kwargs) * z_cut(z_integral_ax, zcut=gw_zcut)
+    alt_redshift_population_prior /= romb(alt_redshift_population_prior * jacobian, dx=dz)
+    S_alt = romb(y=gw_redshift_posterior_marginalized_evaluated / PEprior * alt_redshift_population_prior * jacobian, dx=dz)
 
-    gw_posterior_times_alt_population_prior = gw_redshift_posterior_marginalized(s_alt_z_integral_ax) * alt_redshift_population_prior_rate_weighted
-
-    intermediate = gw_redshift_posterior_marginalized_cw(s_alt_z_integral_ax) * alt_redshift_population_prior_rate_weighted
-    gw_posterior_times_cw_alt_population_prior = intermediate * redshift_completeness(s_alt_z_integral_ax)  # TODO: only works now with uniform-on-sky redshift completeness
+    # int dz p(z|d_gw)/PEprior(z) * (1 - f_c(z)) * p_pop(z | A, \conj{G})
+    outofcat_agn_redshift_population_prior = background_agn_distribution(z_integral_ax) * merger_rate(z_integral_ax, merger_rate_func, **merger_rate_kwargs) * z_cut(z_integral_ax, zcut=gw_zcut)
+    outofcat_agn_redshift_population_prior /= romb(outofcat_agn_redshift_population_prior * jacobian, dx=dz)
+    S_outofcat_agn = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax)) / PEprior * outofcat_agn_redshift_population_prior * jacobian, dx=dz)
     
-    S_alt = romb(y=gw_posterior_times_alt_population_prior * jacobian_salt, dx=dz_Salt)
-    S_alt_cw = romb(y=gw_posterior_times_cw_alt_population_prior * jacobian_salt, dx=dz_Salt)
-
-    S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
-
-    # S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
+    # S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
     S_agn_cw_binned = 1
     S_alt_cw_binned = 1
+    S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
 
-    return S_agn_cw, S_alt_cw, S_alt, S_agn_cw_binned, S_alt_cw_binned
+    return S_agn_cw, S_outofcat_agn, S_alt, S_agn_cw_binned, S_alt_cw_binned
+
+    # # int dz p(z|d_gw)/PEprior(z) * f_c(z) * p_pop(z): needed when p_pop(z | \conj{A}, \conj{G}) = p_pop(z | A, \conj{G}) = unif in comvol -- So the ''alt'' labels should probably be ''outofcat''...TODO
+    # intermediate = gw_redshift_posterior_marginalized_cw(z_integral_ax) * alt_redshift_population_prior_rate_weighted
+    # gw_posterior_times_cw_alt_population_prior = intermediate * redshift_completeness(z_integral_ax)  # TODO: only works now with uniform-on-sky redshift completeness
+    # S_alt_cw = romb(y=gw_posterior_times_cw_alt_population_prior * jacobian, dx=dz)
+    # S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
+
+    # S_agn_cw_binned = 1
+    # S_alt_cw_binned = 1
+    # S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
+
+    # return S_agn_cw, S_alt_cw, S_alt, S_agn_cw_binned, S_alt_cw_binned

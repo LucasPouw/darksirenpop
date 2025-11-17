@@ -97,8 +97,8 @@ def process_one_fagn(fagn_idx, fagn_true):
                                                                 agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
                                                                 skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
                                                                 gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                                s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX,            # Integrating the likelihood in redshift space    
-                                                                s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,            # Integrating the likelihood in redshift space    
+                                                                z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space 
+                                                                background_agn_distribution=AGN_ZPRIOR_FUNCTION,
                                                                 assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
                                                                 merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
@@ -123,14 +123,15 @@ def process_one_fagn(fagn_idx, fagn_true):
     S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
     S_alt = S_alt[~np.isnan(S_alt)]
 
-    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+    # loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] + S_alt_cw[:,None] - S_alt[:,None]) + S_alt[:,None])
     
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
         print('Got NaNs:')
-        print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
-        print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
-        print((LOG_LLH_X_AX[None,:] * S_alt[:,None])[nans])
+        print(S_agn_cw[:,None][nans])
+        print(S_alt_cw[:,None][nans])
+        print(S_alt[:,None][nans])
     # print(f'\n{fagn_idx} Done in {time.time() - s}\n')
 
     return fagn_idx, np.sum(loglike, axis=0)

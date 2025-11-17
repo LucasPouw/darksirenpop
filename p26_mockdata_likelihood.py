@@ -7,22 +7,7 @@ import sys
 
 
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
-# gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
-
-
-
-gw_fnames_per_realization = []
-keys = []
-for i, file in enumerate(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat')):
-    keys.append(file[-9:-4])
-for gw_fnames in all_gw_fnames:
-    key = gw_fnames[-13:-8]
-    if key in keys:
-        gw_fnames_per_realization.append(gw_fnames)
-gw_fnames_per_realization = np.atleast_2d(gw_fnames_per_realization).T
-print(gw_fnames_per_realization.shape)    
-
-
+gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
 all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
 all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
@@ -142,9 +127,9 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
                                                                 agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
                                                                 skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
                                                                 gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                                s_agn_z_integral_ax=S_AGN_Z_INTEGRAL_AX,            # Integrating the likelihood in redshift space    
-                                                                s_alt_z_integral_ax=S_ALT_Z_INTEGRAL_AX,            # Integrating the likelihood in redshift space    
+                                                                z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space  
                                                                 assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                                background_agn_distribution=AGN_ZPRIOR_FUNCTION,
                                                                 merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                                 linax=LINAX,                                        # Integration can be done in linspace or in geomspace
                                                                 realdata=False,
@@ -180,14 +165,17 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
     S_alt = S_alt[~np.isnan(S_alt)]
 
-    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+    # loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
+    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] + S_alt_cw[:,None] - S_alt[:,None]) + S_alt[:,None])
     
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
         print('Got NaNs:')
-        print((LOG_LLH_X_AX[None,:] * S_agn_cw[:,None])[nans])
-        print((LOG_LLH_X_AX[None,:] * S_alt_cw[:,None])[nans])
-        print((LOG_LLH_X_AX[None,:] * S_alt[:,None])[nans])
+        arr = np.ones_like(LOG_LLH_X_AX)
+        print((arr[None,:] * S_agn_cw[:,None])[nans])
+        print((arr[None,:] * S_alt_cw[:,None])[nans])
+        print((arr[None,:] * S_alt[:,None])[nans])
+
 
     # S_agn_cw_bin = S_agn_cw_bin[~np.isnan(S_agn_cw_bin)]
     # S_alt_cw_bin = S_alt_cw_bin[~np.isnan(S_alt_cw_bin)]

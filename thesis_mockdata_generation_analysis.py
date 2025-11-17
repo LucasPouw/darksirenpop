@@ -28,12 +28,12 @@ Are LOS zpriors correctly calculated given the AGN posteriors with prior that in
 
 ########################### INPUT PARAMETERS #################################
 MAKE_SKYMAPS = True  # Only implemented in combination with USE_ONLY_3DLOC = True
-ID = '8'
+ID = 'x'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 CAT_DIR = f'./catalogs_{ID}'
 
-NCPU = 30#os.cpu_count()
+NCPU = os.cpu_count()
 
 USE_ONLY_SKY = False
 USE_ONLY_3DLOC = True
@@ -83,8 +83,8 @@ S_ALT_Z_INTEGRAL_AX = np.geomspace(ZMIN, ZMAX, 8192*2+1)
 ZNORM_ROMB_AXIS = np.geomspace(ZMIN / 10, 10 * ZMAX, 8192*2+1)  # Normalizing the GW redshift posterior is done numerically, this is the range on which that happens.
 
 VOLUME = 4 / 3 * np.pi * COMDIST_MAX**3
-AGN_NUMDENS = 1e4 / VOLUME
-BATCH = int(1e4)
+AGN_NUMDENS = 2e4 / VOLUME
+BATCH = int(2e4)
 N_TRIALS = 1
 MAX_N_FAGNS = 1
 CALC_LOGLLH_AT_N_POINTS = 1000
