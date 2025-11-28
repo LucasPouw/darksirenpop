@@ -27,8 +27,8 @@ N_WORKERS = 16
 
 VERBOSE = True
 
-N_REALIZATIONS = 100
-BATCH = 100#len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
+N_REALIZATIONS = 200
+BATCH = 96 #len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
 TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 REALIZED_FAGNS = np.random.binomial(BATCH, TRUE_FAGNS) / BATCH  # Observed f_agn fluctuates around the true value
 N_TRUE_FAGNS = len(TRUE_FAGNS)
@@ -41,7 +41,7 @@ SKYMAP_CL = 0.999
 
 AGN_ZMAX = 7.  # Maximum true redshift for AGN
 AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
-AGN_ZPRIOR = 'uniform_comoving_volume'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5', '45.0', '45.5', '46.0', '46.5'
+AGN_ZPRIOR = '44.5'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5', '45.0', '45.5', '46.0', '46.5'
 
 # Quaia completeness (rows = bins, cols = thresholds)
 THRESHOLD_MAP = {"46.5": 0, "46.0": 1, "45.5": 2, "45.0": 3, "44.5": 4}
@@ -57,38 +57,41 @@ QUAIA_C_VALS = np.array([
                     [1.000, 1.000, 0.482, 0.155, 0.053],
                     [0., 0., 0., 0., 0.]
                 ])
-LUM_THRESH = '46.0'  #'45.5'  # str or False for complete catalog
+LUM_THRESH = '44.5'  # '44.5', '45.0', '45.5', '46.0', '46.5' or False for complete catalog
 if AGN_ZPRIOR != LUM_THRESH:
     print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {LUM_THRESH}, while the AGN redshift posteriors in your catalog may have an inconsistent prior: {AGN_ZPRIOR}')
 
-REDSHIFT_SELECTION_FUNCTION = 'binned'  # 'binned' or 'continuous'
+REDSHIFT_SELECTION_FUNCTION = 'continuous'  # 'binned' or 'continuous'
 MASK_GALACTIC_PLANE = True
 PLOT_CMAP = False
 CMAP_NSIDE = 64
 
-ADD_NAGN_TO_CAT = int(1e2)  # Lower bound, since we prioritize a uniform map, which may require more AGN
+ADD_NAGN_TO_CAT = int(1e4)  # Lower bound, since we prioritize a uniform map, which may require more AGN
 ASSUME_PERFECT_REDSHIFT = False
 AGN_ZERROR = 'quaia'
 if AGN_ZERROR == 'quaia':
     quaia_errors = pd.read_csv("/home/lucas/Documents/PhD/Quaia_z15.csv")["redshift_quaia_err"]  # Load into memory and sample later
 
+MERGER_RATE_EVOLUTION = merger_rate_uniform
+MERGER_RATE_KWARGS = {}
+
+ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
+ZMAX = 7   # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0 - TODO: CHECK INFLUENCE
+# assert AGN_ZMAX >= ZMAX, 'Need AGN at least as deep as GWs can go, otherwise the population prior is not evaluated on the correct axis.'  # Don't think this is true anymore
+
+
 REAL_DATA = True
 if REAL_DATA:
-    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_skymapCL_{SKYMAP_CL}'
+    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_skymapCL_{SKYMAP_CL}_gwZmax_{ZMAX}'
 else:
-    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_addAGN_{ADD_NAGN_TO_CAT}_nrealizations_{N_REALIZATIONS}_batch_{BATCH}_skymapCL_{SKYMAP_CL}_agnZerror_{AGN_ZERROR}'
+    FAGN_POSTERIOR_FNAME = f'p26_likelihood_posteriors_realdata_{REAL_DATA}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_galplanemask_{MASK_GALACTIC_PLANE}_addAGN_{ADD_NAGN_TO_CAT}_nrealizations_{N_REALIZATIONS}_batch_{BATCH}_skymapCL_{SKYMAP_CL}_agnZerror_{AGN_ZERROR}_gwZmax_{ZMAX}'
 inp = None
 while inp not in ['y', 'Y', 'yes', 'Yes', 'n', 'N', 'no', 'No']:
     inp = input('Have you changed the posterior filename? (y/n)')
 if inp not in ['y', 'Y', 'yes', 'Yes']:
     sys.exit('Please adjust the posterior filename accordingly.') 
 
-MERGER_RATE_EVOLUTION = merger_rate_uniform
-MERGER_RATE_KWARGS = {}
 
-ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
-ZMAX = 1.5   # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0
-# assert AGN_ZMAX >= ZMAX, 'Need AGN at least as deep as GWs can go, otherwise the population prior is not evaluated on the correct axis.'  # Don't think this is true anymore
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value
 AGN_COMDIST_MAX = COSMO.comoving_distance(AGN_ZMAX).value
@@ -117,6 +120,8 @@ def get_agn_zprior():
     
     else:
         sys.exit(f'AGN redshift prior not recognized: {AGN_ZPRIOR}. \nExiting...')
+    
+AGN_ZPRIOR_FUNCTION = get_agn_zprior()
 
 
 def get_agn_z_posterior_norm_ax(at_least_N=10):
@@ -127,9 +132,6 @@ def get_agn_z_posterior_norm_ax(at_least_N=10):
     npoints = int(2**np.ceil(np.log2(at_least_N * (AGN_ZMAX - ZMIN) / smallest_error)))  # Enforces at least N points within 1 sigma in normalization of AGN posteriors
     return np.linspace(ZMIN, AGN_ZMAX, npoints + 1)
 
-
-AGN_ZPRIOR_FUNCTION = get_agn_zprior()
-
 if not ASSUME_PERFECT_REDSHIFT:
     AGN_POSTERIOR_NORM_AX = get_agn_z_posterior_norm_ax()
 
@@ -137,7 +139,7 @@ if not ASSUME_PERFECT_REDSHIFT:
 def get_observed_redshift_from_rcom(agn_rcom):
     true_agn_redshift = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
 
-    # Sample from Quaia or make all errors the same?
+    # Sample from Quaia or make all errors the same (which requires AGN_ZERROR to be a float)?
     if AGN_ZERROR == 'quaia':
         if VERBOSE:
             print('Sampling AGN redshift errors from Quaia')
@@ -166,9 +168,9 @@ def get_observed_redshift_from_rcom(agn_rcom):
 
 def make_redshift_selection(obs_agn_redshift):
     '''
-    AGN catalogs can be redshift-incomplete. This function returns a masking array that does the selection based on the observed AGN redshifts.
+    AGN catalogs can be redshift-incomplete. This function returns a masking array that does the selection based on the data realization of AGN redshifts.
     '''
-    if not LUM_THRESH:
+    if not LUM_THRESH:  # No redshift selection
         c_per_zbin = np.tile(1, len(Z_EDGES) - 1)
         redshift_incomplete_mask = np.ones_like(obs_agn_redshift, dtype=bool)
     else:
@@ -291,7 +293,7 @@ def get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_
         redshift_population_prior_normalization = np.sum(merger_rate(obs_agn_redshift[obs_agn_redshift < ZMAX], MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS))  # TODO: check if this is correct when varying the merger rate evolution
         sum_of_posteriors = 1
     else:
-        posterior_path = f'./precompute_posteriors/agn_posteriors_precompute_prior_{AGN_ZPRIOR}_{fagn_idx}_{label}.hdf5'
+        posterior_path = f'./precompute_posteriors/agn_posteriors_precompute_gwZmax_{ZMAX}_prior_{AGN_ZPRIOR}_{fagn_idx}_{label}.hdf5'
 
         if not os.path.exists(posterior_path):
             compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
@@ -303,6 +305,10 @@ def get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_
         with h5py.File(posterior_path, "r") as f:
             agn_posterior_dset = f["agn_redshift_posteriors"][()]
         sum_of_posteriors = np.sum(agn_posterior_dset, axis=0)  # Sum of posteriors is required to normalize the in-catalog population prior
+
+        # plt.plot(Z_INTEGRAL_AX, sum_of_posteriors)
+        # plt.show()
+        # sys.exit(1)
 
         if LINAX:
             dz = np.diff(Z_INTEGRAL_AX)[0]

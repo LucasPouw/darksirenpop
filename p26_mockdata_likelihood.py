@@ -14,7 +14,6 @@ all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
 true_source_identifiers = all_true_sources[:,0]
 
 log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-# log_llh_bin = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
 for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     print(f'\nRealization {fagn_idx + 1}/{N_TRUE_FAGNS}: fagn = {fagn_true}')
 
@@ -95,27 +94,19 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     # sys.exit(1)
 
     ### Calculate the integrals in the likelihood ###
-    
-    S_agn_cw = np.zeros(BATCH)
-    S_alt_cw = np.zeros(BATCH)
+    S_agn_incat = np.zeros(BATCH)
+    S_agn_outofcat = np.zeros(BATCH)
     S_alt = np.zeros(BATCH)
 
-
-
-    S_agn_cw_dict = {}
-    S_alt_cw_dict = {}
+    S_agn_incat_dict = {}
+    S_agn_outofcat_dict = {}
     S_alt_dict = {}
     from_agn_dict = {}
-
-
-    # S_agn_cw_bin = np.zeros(BATCH)
-    # S_alt_cw_bin = np.zeros(BATCH)
-    # for gw_idx in range(BATCH):
     for gw_idx, filename in tqdm(enumerate(gw_fnames)):
         skymap = read_sky_map(filename, moc=True)
         # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
         
-        sagn_cw, salt_cw, salt, sagn_bin, salt_bin = crossmatch(agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
+        sagn_incat, sagn_outofcat, salt, sagn_bin, salt_bin = crossmatch(agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
                                                                 sky_map=skymap,                                     # GW data
                                                                 completeness_map=completeness_map,                  # For getting the surveyed sky-area
                                                                 completeness_zedges=Z_EDGES,                        # Redshift selection function
@@ -136,69 +127,44 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
                                                                 **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
         
         if len(agn_ra) != 0:
-            sagn_cw *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
-        # sagn_bin *= (4 * np.pi / redshift_population_prior_normalization)
+            sagn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
 
-        S_agn_cw[gw_idx] = sagn_cw
-        S_alt_cw[gw_idx] = salt_cw
+        S_agn_incat[gw_idx] = sagn_incat
+        S_agn_outofcat[gw_idx] = sagn_outofcat
         S_alt[gw_idx] = salt
 
-
         key = filename[-13:-8]
-        S_agn_cw_dict[key] = sagn_cw
-        S_alt_cw_dict[key] = salt_cw
+        S_agn_incat_dict[key] = sagn_incat
+        S_agn_outofcat_dict[key] = sagn_outofcat
         S_alt_dict[key] = salt
 
         if int(key) in gw_identifiers:
             from_agn_dict[key] = True
         else:
             from_agn_dict[key] = False
-
-
-        # S_agn_cw_bin[gw_idx] = sagn_bin
-        # S_alt_cw_bin[gw_idx] = salt_bin
-        # print(sagn_cw, salt_cw, salt)
     
     ### Evaluate the likelihood ###
-
-    S_agn_cw = S_agn_cw[~np.isnan(S_agn_cw)]
-    S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
+    S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
+    S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
     S_alt = S_alt[~np.isnan(S_alt)]
 
-    # loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
-    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] + S_alt_cw[:,None] - S_alt[:,None]) + S_alt[:,None])
+    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
     
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
         print('Got NaNs:')
         arr = np.ones_like(LOG_LLH_X_AX)
-        print((arr[None,:] * S_agn_cw[:,None])[nans])
-        print((arr[None,:] * S_alt_cw[:,None])[nans])
+        print((arr[None,:] * S_agn_incat[:,None])[nans])
+        print((arr[None,:] * S_agn_outofcat[:,None])[nans])
         print((arr[None,:] * S_alt[:,None])[nans])
-
-
-    # S_agn_cw_bin = S_agn_cw_bin[~np.isnan(S_agn_cw_bin)]
-    # S_alt_cw_bin = S_alt_cw_bin[~np.isnan(S_alt_cw_bin)]
-    # loglike_bin = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw_bin[:,None] - S_alt_cw_bin[:,None]) + S_alt[:,None])
-    # nans = np.isnan(loglike_bin)
-    # if np.sum(nans) != 0:
-    #     print('Got NaNs:')
-    #     print((LOG_LLH_X_AX[None,:] * S_agn_cw_bin[:,None])[nans])
-    #     print((LOG_LLH_X_AX[None,:] * S_alt_cw_bin[:,None])[nans])
-    #     sys.exit(1)
-    # log_llh_bin[:,fagn_idx] = np.sum(loglike_bin, axis=0)  # sum over all GWs
     
     log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
     if VERBOSE:
         print('Done.')
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
-# np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME + '_binned.npy'), log_llh_bin)
 
-
-
-
-np.save(f's_agn_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_cw_dict)
-np.save(f's_alt_cw_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_cw_dict)
+np.save(f's_agn_incat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_incat_dict)
+np.save(f's_agn_outofcat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_outofcat_dict)
 np.save(f's_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
 np.save(f'from_agn_dict_{FAGN_POSTERIOR_FNAME}.npy', from_agn_dict)

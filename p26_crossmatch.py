@@ -114,7 +114,7 @@ def crossmatch_p26(agn_posterior_dset,
 
     if np.sum(np.isnan(dP_dA)) > 0:
         print('BAD SKYMAP')
-        return np.nan, np.nan, np.nan, np.nan, np.nan
+        return np.nan, np.nan, np.nan
 
     # Find the pixel that contains the injection.
     order, ipix = moc.uniq2nest(sky_map["UNIQ"])
@@ -147,8 +147,7 @@ def crossmatch_p26(agn_posterior_dset,
     # Calculate int dz p(z|d_gw)/PEprior(z) * p_pop(z | A, G)
     if nagn_within_cl == 0:
         # print(f'No AGN found within {skymap_cl} CL')
-        S_agn_cw = 0.
-        S_agn_cw_binned = 0.
+        S_agn_incat = 0.
 
     else:
         gw_pixidx_at_agn_locs_within_cl = gw_pixidx_at_agn_locs[agn_within_cl_mask]
@@ -163,7 +162,7 @@ def crossmatch_p26(agn_posterior_dset,
             agn_lumdists_within_cl = agn_lumdist[agn_within_cl_mask]
             agn_posterior_idx = np.arange(nagn_within_cl)
             
-            S_agn_cw = 0
+            S_agn_incat = 0
             for i, gw_idx in enumerate(unique_gw_pixidx_containing_agn):
                 norm_in_pix, mu_in_pix, sig_in_pix = distnorm_allpix[i], distmu_allpix[i], distsigma_allpix[i]
                 gw_redshift_posterior_in_pix = lambda z: redshift_pdf_given_lumdist_pdf(z, LOS_lumdist_ansatz, distnorm=norm_in_pix, distmu=mu_in_pix, distsigma=sig_in_pix)
@@ -183,12 +182,7 @@ def crossmatch_p26(agn_posterior_dset,
                 
                 # TODO: redshift completeness could be different for different AGN
                 # f_c(z) * p(s|z) * p_gw(z) * p_gw(Omega) / pi_PE(z), evaluated at AGN position because of delta-function AGN posteriors, sum contributions of all AGN in this pixel
-                S_agn_cw += np.sum( redshift_completeness(selected_agn_redshifts) * merger_rate(selected_agn_redshifts, merger_rate_func, **merger_rate_kwargs) * gw_redshift_posterior_in_pix(selected_agn_redshifts) * dP_dA[gw_idx] / uniform_comoving_prior(selected_agn_redshifts) )
-                # S_agn_cw += np.sum( merger_rate(selected_agn_redshifts, merger_rate_func, **merger_rate_kwargs) * gw_redshift_posterior_in_pix(selected_agn_redshifts) * dP_dA[gw_idx] / uniform_comoving_prior(selected_agn_redshifts) )
-            
-            
-            # S_agn_cw_binned = S_agn_cw
-
+                S_agn_incat += np.sum( redshift_completeness(selected_agn_redshifts) * merger_rate(selected_agn_redshifts, merger_rate_func, **merger_rate_kwargs) * gw_redshift_posterior_in_pix(selected_agn_redshifts) * dP_dA[gw_idx] / uniform_comoving_prior(selected_agn_redshifts) )
 
         else:  # AGN have z-errors, need to use their full posteriors
 
@@ -212,7 +206,7 @@ def crossmatch_p26(agn_posterior_dset,
                 # LOSzprior += agn_population_prior_unnorm
                 integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * agn_population_prior_unnorm
             
-            S_agn_cw = romb(integrand * fc_of_z / PEprior * jacobian, dx=dz)  # TODO: put fc_of_z inside loop when it can differ over the sky
+            S_agn_incat = romb(integrand * fc_of_z / PEprior * jacobian, dx=dz)  # TODO: put fc_of_z inside loop when it can differ over the sky
             
             # plt.figure()
             # plt.plot(z_integral_ax, LOSzprior)
@@ -225,16 +219,12 @@ def crossmatch_p26(agn_posterior_dset,
     pix_idx = hp.ang2pix(cmap_nside, skymap_theta, skymap_phi, nest=True)
 
     pixprob_within_cl = (cumprob <= skymap_cl)
-    # completenesses = completeness_map[ pix_idx[pixprob_within_cl] ]  # WHEN USING ONLY SKYLOC
 
     cmap_vals_in_gw_skymap = completeness_map[pix_idx]
     surveyed = (cmap_vals_in_gw_skymap != 0)
 
     sky_coverage = np.sum(dA[surveyed]) / np.sum(dA)
-    S_agn_cw *= sky_coverage
-
-    # S_alt = 1  # WHEN USING ONLY SKYLOC
-    # S_alt_cw = np.sum(dP * cmap_vals_in_gw_skymap)  # WHEN USING ONLY SKYLOC
+    S_agn_incat *= sky_coverage
 
     skyprob_nonzero = (dP != 0)
     gw_redshift_posterior_marginalized = lambda z: redshift_pdf_given_lumdist_pdf(z, 
@@ -262,14 +252,15 @@ def crossmatch_p26(agn_posterior_dset,
     # int dz p(z|d_gw)/PEprior(z) * (1 - f_c(z)) * p_pop(z | A, \conj{G})
     outofcat_agn_redshift_population_prior = background_agn_distribution(z_integral_ax) * merger_rate(z_integral_ax, merger_rate_func, **merger_rate_kwargs) * z_cut(z_integral_ax, zcut=gw_zcut)
     outofcat_agn_redshift_population_prior /= romb(outofcat_agn_redshift_population_prior * jacobian, dx=dz)
-    S_outofcat_agn = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax)) / PEprior * outofcat_agn_redshift_population_prior * jacobian, dx=dz)
-    
-    # S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
-    S_agn_cw_binned = 1
-    S_alt_cw_binned = 1
-    S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
+    S_agn_outofcat = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax)) / PEprior * outofcat_agn_redshift_population_prior * jacobian, dx=dz)
 
-    return S_agn_cw, S_outofcat_agn, S_alt, S_agn_cw_binned, S_alt_cw_binned
+    return S_agn_incat, S_agn_outofcat, S_alt
+
+
+    # completenesses = completeness_map[ pix_idx[pixprob_within_cl] ]  # WHEN USING ONLY SKYLOC
+    # S_alt = 1  # WHEN USING ONLY SKYLOC
+    # S_alt_cw = np.sum(dP * cmap_vals_in_gw_skymap)  # WHEN USING ONLY SKYLOC
+
 
     # # int dz p(z|d_gw)/PEprior(z) * f_c(z) * p_pop(z): needed when p_pop(z | \conj{A}, \conj{G}) = p_pop(z | A, \conj{G}) = unif in comvol -- So the ''alt'' labels should probably be ''outofcat''...TODO
     # intermediate = gw_redshift_posterior_marginalized_cw(z_integral_ax) * alt_redshift_population_prior_rate_weighted
@@ -277,8 +268,4 @@ def crossmatch_p26(agn_posterior_dset,
     # S_alt_cw = romb(y=gw_posterior_times_cw_alt_population_prior * jacobian, dx=dz)
     # S_alt_cw = min(S_alt_cw, S_alt)  # Handle floating point error, otherwise a NaN occurs in the log-llh if S_alt_cw > S_alt when S_agn_cw = 0
 
-    # S_agn_cw_binned = 1
-    # S_alt_cw_binned = 1
-    # S_alt_cw_binned = min(S_alt_cw_binned, S_alt)
-
-    # return S_agn_cw, S_alt_cw, S_alt, S_agn_cw_binned, S_alt_cw_binned
+    # return S_agn_incat, S_alt_cw, S_alt

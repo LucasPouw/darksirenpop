@@ -70,67 +70,58 @@ def process_one_fagn(fagn_idx, fagn_true):
     
     if not ASSUME_PERFECT_REDSHIFT:    
         redshift_agn_selection_function = sum_of_posteriors_incomplete / sum_of_posteriors_complete
-        c_per_zbin = redshift_agn_selection_function
+        redshift_completeness = interp1d(Z_INTEGRAL_AX, redshift_agn_selection_function, bounds_error=False, fill_value=0)
+    else:
+        def redshift_completeness(z, completeness_zvals=c_per_zbin):
+            bin_idx = np.digitize(z, Z_EDGES) - 1
+            bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
+            return completeness_zvals[bin_idx.astype(np.int32)]
 
     ### Calculate the integrals in the likelihood ###
-    
-    S_agn_cw = np.zeros(BATCH)
-    S_alt_cw = np.zeros(BATCH)
+    S_agn_incat = np.zeros(BATCH)
+    S_agn_outofcat = np.zeros(BATCH)
     S_alt = np.zeros(BATCH)
-
-    # S_agn_cw_bin = np.zeros(BATCH)
-    # S_alt_cw_bin = np.zeros(BATCH)
-    # for gw_idx in range(BATCH):
     for gw_idx, filename in enumerate(gw_fnames):
         skymap = read_sky_map(filename, moc=True)
-        # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
         
-        sagn_cw, salt_cw, salt, sagn_bin, salt_bin = crossmatch(agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
-                                                                sky_map=skymap,                                     # GW data
-                                                                completeness_map=completeness_map,                  # For getting the surveyed sky-area
-                                                                completeness_zedges=Z_EDGES,                        # Redshift selection function
-                                                                completeness_zvals=c_per_zbin,                      # Redshift selection function
-                                                                agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
-                                                                skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
-                                                                gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                                z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space 
-                                                                background_agn_distribution=AGN_ZPRIOR_FUNCTION,
-                                                                assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
-                                                                merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
-                                                                linax=LINAX,                                        # Integration can be done in linspace or in geomspace
-                                                                realdata=False,
-                                                                **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+        sagn_incat, sagn_outofcat, salt = crossmatch(agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
+                                                    sky_map=skymap,                                     # GW data
+                                                    completeness_map=completeness_map,                  # For getting the surveyed sky-area
+                                                    redshift_completeness=redshift_completeness,        # Callable: redshift selection function
+                                                    agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
+                                                    skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
+                                                    gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
+                                                    z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space                                                                
+                                                    assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                    background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                    merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
+                                                    linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                    **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
 
         if len(agn_ra) != 0:
-            sagn_cw *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
-        # sagn_bin *= (4 * np.pi / redshift_population_prior_normalization)
+            sagn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
 
-        S_agn_cw[gw_idx] = sagn_cw
-        S_alt_cw[gw_idx] = salt_cw
+        S_agn_incat[gw_idx] = sagn_incat
+        S_agn_outofcat[gw_idx] = sagn_outofcat
         S_alt[gw_idx] = salt
-
-        # S_agn_cw_bin[gw_idx] = sagn_bin
-        # S_alt_cw_bin[gw_idx] = salt_bin
-        # print(sagn_cw, salt_cw, salt)
     
     ### Evaluate the likelihood ###
 
-    S_agn_cw = S_agn_cw[~np.isnan(S_agn_cw)]
-    S_alt_cw = S_alt_cw[~np.isnan(S_alt_cw)]
+    S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
+    S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
     S_alt = S_alt[~np.isnan(S_alt)]
 
-    # loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] - S_alt_cw[:,None]) + S_alt[:,None])
-    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_cw[:,None] + S_alt_cw[:,None] - S_alt[:,None]) + S_alt[:,None])
+    loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
     
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
         print('Got NaNs:')
-        print(S_agn_cw[:,None][nans])
-        print(S_alt_cw[:,None][nans])
+        print(S_agn_incat[:,None][nans])
+        print(S_agn_outofcat[:,None][nans])
         print(S_alt[:,None][nans])
     # print(f'\n{fagn_idx} Done in {time.time() - s}\n')
 
@@ -138,12 +129,12 @@ def process_one_fagn(fagn_idx, fagn_true):
 
 
 log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-# log_llh_bin = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
 with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:  # 1 proc, 11.5s/it - 8 proc, 14.5s/it - 16 proc, 25s/it - 32 proc, 58s/it
     futures = [executor.submit(process_one_fagn, fagn_idx, fagn_true) for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS)]
     for future in tqdm(as_completed(futures)):
         fagn_idx, llh = future.result()
         log_llh[:,fagn_idx] = llh
 
-np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
-# np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME + '_binned.npy'), log_llh_bin)
+fname = os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME)
+np.save(fname, log_llh)
+print(f'Posterior is located at: {fname}')
