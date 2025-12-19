@@ -1,97 +1,166 @@
 from p26_control_room import *
 import glob
-from utils import uniform_shell_sampler
+from utils import uniform_shell_sampler, sample_spherical_angles
 from ligo.skymap.io.fits import read_sky_map
 from p26_crossmatch import crossmatch_p26 as crossmatch
 import sys
+from scipy.integrate import simpson
 
+
+ALL_TRUE_SOURCES = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
+ALL_TRUE_SOURCES = ALL_TRUE_SOURCES[ALL_TRUE_SOURCES[:, 0].argsort()]
+TRUE_SOURCE_IDENTIFIERS = ALL_TRUE_SOURCES[:,0]
+
+
+def get_gw_fnames_resampled(fagn_realized):
+
+    print('THIS ONLY WORKS IN TESTING WHEN THE ALTERNATIVE IS PURELY UNIFORM IN COMOVING VOLUME AND NOT TIME DILATION AND STUFF')
+    
+    agn_rcom = ALL_TRUE_SOURCES[:,1]
+    agn_z = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
+
+    norm = romb(AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX), dx=np.diff(Z_INTEGRAL_AX)[0])
+    target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
+
+    print('CANNOT DO REPLACE=FALSE WHEN IMPORTANCE RESAMPLING')
+    from_agn_population = np.random.choice(np.arange(len(agn_z)), p=target_population(agn_z) / uniform_comoving_prior(agn_z) / np.sum(target_population(agn_z) / uniform_comoving_prior(agn_z)), size=round(fagn_realized * BATCH))
+
+    need_these = TRUE_SOURCE_IDENTIFIERS[from_agn_population].astype(int)
+    gw_fnames_from_agn = []
+    for id in need_these:
+        s = f'{SKYMAP_DIR}skymap_0_0_{id:05d}.fits.gz'
+        gw_fnames_from_agn.append(s)
+
+    gw_fnames_from_agn = np.array(gw_fnames_from_agn)
+    gw_fnames_from_alt = np.random.choice(all_gw_fnames, size=BATCH - gw_fnames_from_agn.shape[0], replace=False)
+    gw_fnames = np.append(gw_fnames_from_agn, gw_fnames_from_alt)
+
+    return gw_fnames, gw_fnames_from_agn
+
+
+def fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom):
+    '''To preserve overall distribution'''
+    if AGN_ZPRIOR == 'uniform_comoving_volume':
+        n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
+        agn_ra = np.append(agn_ra, new_phi)
+        agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+        agn_rcom = np.append(agn_rcom, new_rcom)
+        if VERBOSE:
+            print(f'Adding {n2complete} AGN to get a uniform catalog.')
+
+    else:
+        print(f'WARNING: CANNOT ADD AGN HIGHER THAN ZMAX TO CATALOG WITH POPULATION: {AGN_ZPRIOR}')
+        assert AGN_ZMAX == ZMAX
+        n2complete = 0
+
+    return agn_ra, agn_dec, agn_rcom, n2complete
+
+
+def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps):
+    '''As background noise'''
+
+    if AGN_ZPRIOR == 'uniform_comoving_volume':
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, nsamps)
+    
+    else:
+        new_theta, new_phi = sample_spherical_angles(nsamps)
+
+        norm = romb(AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX), dx=np.diff(Z_INTEGRAL_AX)[0])
+        target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
+
+        cdf = np.cumsum(target_population(Z_INTEGRAL_AX))
+        cdf /= cdf[-1]
+        unif = np.random.rand(nsamps)
+        new_z = np.interp(unif, cdf, Z_INTEGRAL_AX)
+        new_rcom = COSMO.comoving_distance(new_z).value
+
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
+
+    return agn_ra, agn_dec, agn_rcom
 
 all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
 gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
-all_true_sources = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
-all_true_sources = all_true_sources[all_true_sources[:, 0].argsort()]
-true_source_identifiers = all_true_sources[:,0]
 
 log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
-for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
-    print(f'\nRealization {fagn_idx + 1}/{N_TRUE_FAGNS}: fagn = {fagn_true}')
-
-    gw_fnames = gw_fnames_per_realization[:,fagn_idx]
+for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
+    print(f'\nRealization {fagn_idx + 1}/{N_TRUE_FAGNS}: fagn = {fagn_realized}')
 
     ### Get true source coordinates for GWs from AGN to put in the AGN catalog ###
 
-    gw_fnames_from_agn = gw_fnames[:round(fagn_true * BATCH)]
+    if AGN_ZPRIOR == 'uniform_comoving_volume':
+        gw_fnames = gw_fnames_per_realization[:,fagn_idx]
+        gw_fnames_from_agn = gw_fnames[:round(fagn_realized * BATCH)]
+
+    elif AGN_ZPRIOR == '45.0_kulkarni':
+        gw_fnames, gw_fnames_from_agn = get_gw_fnames_resampled(fagn_realized)
+
+    else:
+        sys.exit(f'Resampling of GWs from population not implemented: {AGN_ZPRIOR}')
+
     gw_identifiers = sorted(np.array([f[-13:-8] for f in gw_fnames_from_agn]).astype(int))
-    true_sources = all_true_sources[np.searchsorted(true_source_identifiers, gw_identifiers)]
+    true_sources = ALL_TRUE_SOURCES[np.searchsorted(TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
     ### Complete catalog to preserve uniform in comoving volume distribution ###
-    n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
-    new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
-    agn_ra = np.append(agn_ra, new_phi)
-    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
-    agn_rcom = np.append(agn_rcom, new_rcom)
-    if VERBOSE:
-        print(f'Adding {n2complete} AGN to get a uniform catalog.')
+    agn_ra, agn_dec, agn_rcom, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom)
     ############################################################################
-
+    
     if ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
         if VERBOSE:
             print(f'Adding {ADD_NAGN_TO_CAT - n2complete} more AGN to get to the requested number of AGN.')
-        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, ADD_NAGN_TO_CAT - n2complete)
-        agn_ra = np.append(agn_ra, new_phi)
-        agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
-        agn_rcom = np.append(agn_rcom, new_rcom)
+
+        agn_ra, agn_dec, agn_rcom = add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, ADD_NAGN_TO_CAT - n2complete)
+
     if len(agn_rcom) == 0:
-        obs_agn_redshift, agn_redshift_err = np.empty_like(agn_rcom), np.empty_like(agn_rcom)
+        obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom), np.empty_like(agn_rcom)
     else:
-        obs_agn_redshift, agn_redshift_err = get_observed_redshift_from_rcom(agn_rcom)
-    obs_agn_rlum = COSMO.luminosity_distance(obs_agn_redshift).value
+        obs_agn_redshift_complete, agn_redshift_err_complete = get_observed_redshift_from_rcom(agn_rcom)
+    obs_agn_rlum = COSMO.luminosity_distance(obs_agn_redshift_complete).value
 
     ### Make an incomplete AGN catalog from these coordinates ###
-
-    if not ASSUME_PERFECT_REDSHIFT:
-        if MASK_GALACTIC_PLANE:
-            latitude_mask, _ = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
-            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift[latitude_mask], agn_redshift_err[latitude_mask], label='COMPLETE')
-        else:
-            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='COMPLETE')
-
-    incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift)
+    incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift_complete)
     agn_ra = agn_ra[incomplete_catalog_mask]
     agn_dec = agn_dec[incomplete_catalog_mask]
-    obs_agn_redshift = obs_agn_redshift[incomplete_catalog_mask]
-    agn_redshift_err = agn_redshift_err[incomplete_catalog_mask]
+    obs_agn_redshift = obs_agn_redshift_complete[incomplete_catalog_mask]
+    agn_redshift_err = agn_redshift_err_complete[incomplete_catalog_mask]
     obs_agn_rlum = obs_agn_rlum[incomplete_catalog_mask]
 
     agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
     
-    if not ASSUME_PERFECT_REDSHIFT:    
+    ### Characterize the redshift-completeness ###
+    if REDSHIFT_SELECTION_FUNCTION == 'binned':
+        def redshift_completeness(z, completeness_zvals=c_per_zbin):
+            bin_idx = np.digitize(z, Z_EDGES) - 1
+            bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
+            return completeness_zvals[bin_idx.astype(np.int32)]
+        
+    elif REDSHIFT_SELECTION_FUNCTION == 'continuous':
+        # Measure completeness in the surveyed sky area
+        if MASK_GALACTIC_PLANE:
+            latitude_mask, _ = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
+        else:
+            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift_complete, agn_redshift_err_complete, label='COMPLETE')
+
         redshift_agn_selection_function = sum_of_posteriors_incomplete / sum_of_posteriors_complete
-        c_per_zbin = redshift_agn_selection_function
+        redshift_agn_selection_function[sum_of_posteriors_complete == 0] = 0  # Avoid nans
+        redshift_completeness = interp1d(Z_INTEGRAL_AX, redshift_agn_selection_function, bounds_error=False, fill_value=0)
+
+    elif REDSHIFT_SELECTION_FUNCTION == 'empty':
+        if VERBOSE:
+            print(f'Empty catalog!')
+        redshift_completeness = lambda z: np.zeros_like(z)
+
+    else:
+        sys.exit(f'Redshift selection function not recognized. Implemented: "binned", "continuous" or False. Got: {REDSHIFT_SELECTION_FUNCTION}')
     
     # plt.figure()
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, c_per_zbin)
+    # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX))
     # plt.show()
-
-    # from utils import make_nice_plots
-    # make_nice_plots()
-    # plt.figure(figsize=(8,6))
-    # # h, _, _ = plt.hist(obs_agn_redshift, bins=Z_EDGES, density=True, histtype='step', linewidth=5, label=r'$\langle z_{\rm obs} \rangle$')
-    # # plt.hist(obs_agn_redshift, bins=10, histtype='step', linewidth=3)
-    # # plt.hist(obs_agn_redshift[mask], bins=Z_EDGES, density=True, histtype='step', linewidth=3)
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_complete / romb(sum_of_posteriors_complete, dx=np.diff(S_AGN_Z_INTEGRAL_AX)[0]), linewidth=3, color='red', label=r'$\sum p(z|z_{\rm complete})$')
-    # # plt.plot(S_AGN_Z_INTEGRAL_AX, sum_of_posteriors_incomplete, linewidth=3, color='indigo', label=r'$\sum p(z|z_{\rm observed})$')
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, uniform_comoving_prior(S_AGN_Z_INTEGRAL_AX) / romb(uniform_comoving_prior(S_AGN_Z_INTEGRAL_AX), dx=np.diff(S_AGN_Z_INTEGRAL_AX)[0]))
-    # plt.plot(S_AGN_Z_INTEGRAL_AX, redshift_agn_selection_function, linewidth=3, color='cyan', label=r'$f_{\rm c}(z)$')
-    # plt.vlines([ZMAX, AGN_ZCUT, AGN_ZMAX], ymin=0, ymax=1, color='black', linestyle='dashed', label='Edges')
-    # plt.legend()
-    # plt.xlabel('Redshift')
-    # plt.ylabel('Completeness')
-    # plt.grid()
-    # plt.show()
-    # sys.exit(1)
 
     ### Calculate the integrals in the likelihood ###
     S_agn_incat = np.zeros(BATCH)
@@ -102,29 +171,30 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     S_agn_outofcat_dict = {}
     S_alt_dict = {}
     from_agn_dict = {}
-    for gw_idx, filename in tqdm(enumerate(gw_fnames)):
+    # for gw_idx, filename in tqdm(enumerate(gw_fnames)):
+    for gw_idx, filename in enumerate(gw_fnames):
         skymap = read_sky_map(filename, moc=True)
         # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
         
-        sagn_incat, sagn_outofcat, salt, sagn_bin, salt_bin = crossmatch(agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
-                                                                sky_map=skymap,                                     # GW data
-                                                                completeness_map=completeness_map,                  # For getting the surveyed sky-area
-                                                                completeness_zedges=Z_EDGES,                        # Redshift selection function
-                                                                completeness_zvals=c_per_zbin,                      # Redshift selection function
-                                                                agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
-                                                                agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
-                                                                skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
-                                                                gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                                z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space  
-                                                                assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
-                                                                background_agn_distribution=AGN_ZPRIOR_FUNCTION,
-                                                                merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
-                                                                linax=LINAX,                                        # Integration can be done in linspace or in geomspace
-                                                                realdata=False,
-                                                                **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+        sagn_incat, sagn_outofcat, salt = crossmatch(zpriornorm = redshift_population_prior_normalization,
+                                                    agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
+                                                    sky_map=skymap,                                     # GW data
+                                                    completeness_map=completeness_map,                  # For getting the surveyed sky-area
+                                                    redshift_completeness=redshift_completeness,        # Callable: redshift selection function 
+                                                    agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
+                                                    agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
+                                                    skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
+                                                    gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
+                                                    z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space  
+                                                    assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                    background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                    merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
+                                                    linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                    correct_time_dilation=CORRECT_TIME_DILATION,
+                                                    **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
         
         if len(agn_ra) != 0:
             sagn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
@@ -142,6 +212,9 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
             from_agn_dict[key] = True
         else:
             from_agn_dict[key] = False
+
+
+        print(sagn_incat, sagn_outofcat, salt, np.sum((LOG_LLH_X_AX * (sagn_incat + sagn_outofcat - salt) + salt) < 0))
     
     ### Evaluate the likelihood ###
     S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
@@ -149,7 +222,7 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     S_alt = S_alt[~np.isnan(S_alt)]
 
     loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
-    
+
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
         print('Got NaNs:')
@@ -161,6 +234,17 @@ for fagn_idx, fagn_true in enumerate(REALIZED_FAGNS):
     log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
     if VERBOSE:
         print('Done.')
+    
+
+    plt.figure()
+    posterior = log_llh[:,fagn_idx]
+    posterior -= np.max(posterior)
+    pdf = np.exp(posterior)
+    norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
+    pdf = pdf / norm
+    plt.plot(LOG_LLH_X_AX, pdf)
+    plt.show()
+    sys.exit(1)
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 

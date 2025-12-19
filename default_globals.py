@@ -16,7 +16,7 @@ SPEED_OF_LIGHT_KMS = c.to('km/s').value
 CALC_LOGLLH_AT_N_POINTS = 1000
 LOG_LLH_X_AX = np.linspace(0.0001, 0.9999, CALC_LOGLLH_AT_N_POINTS)
 
-COLORS = ['orangered', 'navy', 'teal', 'goldenrod', 'indigo', 'crimson']
+COLORS = ['orangered', 'navy', 'teal', 'goldenrod', 'hotpink', 'indigo', 'crimson']
 
 # DEFAULT_SKY_AREA_LOW = 1e2
 # DEFAULT_SKY_AREA_HIGH = 1e4

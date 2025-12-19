@@ -33,7 +33,8 @@ agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & 
 agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
 agn_rlum           = COSMO.luminosity_distance(agn_redshift).value
 
-agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, agn_redshift, agn_redshift_err, label=LUM_THRESH, replace_old_file=False)
+agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, agn_redshift, agn_redshift_err, 
+                                                                                                                                        label=LUM_THRESH, replace_old_file=False)
 _, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, agn_rlum, agn_redshift)  # Quaia is already redshift incomplete, but convenient to get completeness maps this way
 
 
@@ -46,14 +47,21 @@ if REDSHIFT_SELECTION_FUNCTION == 'binned':
         return completeness_zvals[bin_idx.astype(np.int32)]
     
 elif REDSHIFT_SELECTION_FUNCTION == 'continuous':
-    filename = f'{AGN_DIST_DIR}/completeness_{LUM_THRESH}.npy'
+    filename = f'{AGN_DIST_DIR}/completeness_{LUM_THRESH}_{QLF}.npy'
     if VERBOSE:
         print(f'Loading continuous selection function calculated from QLF from file: {filename}')
     z, fc_of_z = np.load(filename)
+    c_above_1 = fc_of_z > 1
+    fc_of_z[c_above_1] = 1.
     redshift_completeness = interp1d(z, fc_of_z, bounds_error=False, fill_value=0)
 
+elif REDSHIFT_SELECTION_FUNCTION == 'empty':
+    if VERBOSE:
+        print(f'Empty catalog!')
+    redshift_completeness = lambda z: np.zeros_like(z)
+
 else:
-    sys.exit(f'Redshift selection function not recognized. Implemented: "binned" or "continuous". Got: {REDSHIFT_SELECTION_FUNCTION}')
+    sys.exit(f'Redshift selection function not recognized. Implemented: "binned", "continuous" or False. Got: {REDSHIFT_SELECTION_FUNCTION}')
 
 # plt.figure()
 # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX))
@@ -71,14 +79,33 @@ for gw_idx, key in enumerate(gw_keys):
     filename = gw_path_dict[key]
     skymap = read_sky_map(filename, moc=True)
 
-    plt.figure()
-    plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_incomplete / redshift_population_prior_normalization * redshift_completeness(Z_INTEGRAL_AX) + (1 - redshift_completeness(Z_INTEGRAL_AX)) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX))
-    plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_incomplete / redshift_population_prior_normalization)
-    plt.plot(Z_INTEGRAL_AX, AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX))
-    plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX))
-    plt.plot(Z_INTEGRAL_AX, uniform_comoving_prior(Z_INTEGRAL_AX) / romb(uniform_comoving_prior(Z_INTEGRAL_AX), dx=np.diff(Z_INTEGRAL_AX)[0]))
-    plt.show()
-    sys.exit(1)
+    # AGN_population_outofcat = time_dilation_correction(Z_INTEGRAL_AX) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX)
+    # norm = romb(AGN_population_outofcat, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # AGN_population_outofcat /= norm
+
+    # AGN_population_incat = time_dilation_correction(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX) * sum_of_posteriors_incomplete / redshift_population_prior_normalization
+    # norm = romb(AGN_population_incat, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # AGN_population_incat /= norm
+
+    # ALT_population = uniform_comoving_prior(Z_INTEGRAL_AX) * merger_rate(Z_INTEGRAL_AX, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS) * time_dilation_correction(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX)
+    # norm = romb(ALT_population, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # ALT_population /= norm
+
+    # fc = redshift_completeness(Z_INTEGRAL_AX)
+
+    # print(romb(fc * AGN_population_outofcat + (1 - fc) * AGN_population_incat, dx=np.diff(Z_INTEGRAL_AX)[0]))
+
+    # plt.figure()
+    # plt.plot(Z_INTEGRAL_AX, fc * AGN_population_outofcat + (1 - fc) * AGN_population_incat, label='AGN')
+    # plt.plot(Z_INTEGRAL_AX, AGN_population_incat, label='Incat')
+    # plt.plot(Z_INTEGRAL_AX, AGN_population_outofcat, label='AGN out of cat')
+    # plt.plot(Z_INTEGRAL_AX, fc, label='c(z)')
+    # plt.plot(Z_INTEGRAL_AX, ALT_population, label='Alt')
+    # plt.legend()
+    # plt.xlabel('Redshift')
+    # plt.ylabel('Probability density or completeness')
+    # plt.show()
+    # sys.exit(1)
     
     s_agn_incat, s_agn_outofcat, s_alt, = crossmatch(agn_posterior_dset=agn_posterior_dset,            # AGN data (needed when using AGN z-errors)
                                                     sky_map=skymap,                                     # GW data
@@ -96,10 +123,11 @@ for gw_idx, key in enumerate(gw_keys):
                                                     background_agn_distribution=AGN_ZPRIOR_FUNCTION,
                                                     merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
                                                     linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                    correct_time_dilation=CORRECT_TIME_DILATION,
                                                     **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
     
     if len(agn_ra) != 0:
-        s_agn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
+        s_agn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_agn(z|z_obs)) * p_rate(z)
 
     S_agn_incat_dict[key] = s_agn_incat
     S_agn_outofcat_dict[key] = s_agn_outofcat
@@ -107,6 +135,7 @@ for gw_idx, key in enumerate(gw_keys):
 
     if VERBOSE:
         print(f"\n({gw_idx+1}/{len(gw_keys)}) {key}")
+        print(s_agn_incat, s_agn_outofcat, s_alt)
         if s_agn_incat + s_agn_outofcat - s_alt > 0:
             print('!!! HIGHER AGN PROB !!!')            
 

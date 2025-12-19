@@ -10,12 +10,22 @@ def z_cut(z, zcut):
     return stepfunc
 
 
-def merger_rate_madau(z, gamma=4.59, k=2.86, zp=2.47):
+def time_dilation_correction(z):
+     return 1 / (1 + z)
+
+
+def merger_rate_madau_lvk(z, gamma=4.59, k=2.86, zp=2.47):
         """
-        Madau rate evolution
+        Madau-Dickinson-like merger rate evolution as measured from GWs by LVK
         """
-        C = 1 + (1 + zp)**(-gamma - k)
-        return C * ((1 + z)**gamma) / (1 + ((1 + z) / (1 + zp))**(gamma + k))
+        return (1 + z)**gamma * (1 + (1 + zp)**(-gamma - k)) / (1 + ((1 + z) / (1 + zp))**(gamma + k))
+
+
+def merger_rate_madau_dickinson(z, b = 2.7, c = 2.9, d = 5.6):
+    """
+    Cosmic SFR (no metallicity dependence)
+    """
+    return (1 + z)**b / (1 + ((1 + z) / c)**d)
 
 
 def merger_rate_uniform(z):
