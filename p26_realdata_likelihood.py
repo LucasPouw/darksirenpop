@@ -7,6 +7,10 @@ import json
 from scipy.integrate import simpson
 
 
+if not REAL_DATA:
+    sys.exit('Change flag REAL_DATA = True')
+
+
 CATALOG_PATH = "/home/lucas/Documents/PhD/Quaia_z15.csv"
 SKYMAP_JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
 
@@ -22,6 +26,7 @@ cols = ["redshift_quaia", "redshift_quaia_err", "ra", "dec", "b", "loglbol_corr"
 data = df[cols]
 b              = data["b"].to_numpy()
 loglbol_corr   = data["loglbol_corr"].to_numpy()
+
 outside_galactic_plane = np.logical_or((b > 10), (b < -10))
 above_lbol_thresh = loglbol_corr >= float(LUM_THRESH)
 
@@ -33,8 +38,7 @@ agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & 
 agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
 agn_rlum           = COSMO.luminosity_distance(agn_redshift).value
 
-agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, agn_redshift, agn_redshift_err, 
-                                                                                                                                        label=LUM_THRESH, replace_old_file=False)
+agn_posterior_dset, _ = get_agn_posteriors(fagn_idx, agn_redshift, agn_redshift_err, label=LUM_THRESH, replace_old_file=False)
 _, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, agn_rlum, agn_redshift)  # Quaia is already redshift incomplete, but convenient to get completeness maps this way
 
 
@@ -125,10 +129,6 @@ for gw_idx, key in enumerate(gw_keys):
                                                     linax=LINAX,                                        # Integration can be done in linspace or in geomspace
                                                     correct_time_dilation=CORRECT_TIME_DILATION,
                                                     **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
-    
-    if len(agn_ra) != 0:
-        s_agn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_agn(z|z_obs)) * p_rate(z)
-
     S_agn_incat_dict[key] = s_agn_incat
     S_agn_outofcat_dict[key] = s_agn_outofcat
     S_alt_dict[key] = s_alt

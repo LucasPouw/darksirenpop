@@ -113,23 +113,23 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         if VERBOSE:
             print(f'Adding {ADD_NAGN_TO_CAT - n2complete} more AGN to get to the requested number of AGN.')
 
-        agn_ra, agn_dec, agn_rcom = add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, ADD_NAGN_TO_CAT - n2complete)
+        agn_ra_complete, agn_dec_complete, agn_rcom = add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, ADD_NAGN_TO_CAT - n2complete)
 
     if len(agn_rcom) == 0:
         obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom), np.empty_like(agn_rcom)
     else:
         obs_agn_redshift_complete, agn_redshift_err_complete = get_observed_redshift_from_rcom(agn_rcom)
-    obs_agn_rlum = COSMO.luminosity_distance(obs_agn_redshift_complete).value
+    obs_agn_rlum_complete = COSMO.luminosity_distance(obs_agn_redshift_complete).value
 
     ### Make an incomplete AGN catalog from these coordinates ###
-    incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift_complete)
-    agn_ra = agn_ra[incomplete_catalog_mask]
-    agn_dec = agn_dec[incomplete_catalog_mask]
+    incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra_complete, agn_dec_complete, obs_agn_rlum_complete, obs_agn_redshift_complete)
+    agn_ra = agn_ra_complete[incomplete_catalog_mask]
+    agn_dec = agn_dec_complete[incomplete_catalog_mask]
     obs_agn_redshift = obs_agn_redshift_complete[incomplete_catalog_mask]
     agn_redshift_err = agn_redshift_err_complete[incomplete_catalog_mask]
-    obs_agn_rlum = obs_agn_rlum[incomplete_catalog_mask]
+    obs_agn_rlum = obs_agn_rlum_complete[incomplete_catalog_mask]
 
-    agn_posterior_dset, redshift_population_prior_normalization, sum_of_posteriors_incomplete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
+    agn_posterior_dset, sum_of_posteriors_incomplete = get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
     
     ### Characterize the redshift-completeness ###
     if REDSHIFT_SELECTION_FUNCTION == 'binned':
@@ -141,13 +141,14 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
     elif REDSHIFT_SELECTION_FUNCTION == 'continuous':
         # Measure completeness in the surveyed sky area
         if MASK_GALACTIC_PLANE:
-            latitude_mask, _ = make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum)
-            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
+            latitude_mask, _ = make_latitude_selection(agn_ra_complete, agn_dec_complete, obs_agn_rlum_complete)
+            _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
         else:
-            _, _, sum_of_posteriors_complete = get_agn_posteriors_and_zprior_normalization(fagn_idx, obs_agn_redshift_complete, agn_redshift_err_complete, label='COMPLETE')
+            _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete, agn_redshift_err_complete, label='COMPLETE')
 
-        redshift_agn_selection_function = sum_of_posteriors_incomplete / sum_of_posteriors_complete
-        redshift_agn_selection_function[sum_of_posteriors_complete == 0] = 0  # Avoid nans
+        redshift_agn_selection_function = np.zeros_like(sum_of_posteriors_complete)
+        no_zero = (sum_of_posteriors_complete != 0)
+        redshift_agn_selection_function[no_zero] = sum_of_posteriors_incomplete[no_zero] / sum_of_posteriors_complete[no_zero]
         redshift_completeness = interp1d(Z_INTEGRAL_AX, redshift_agn_selection_function, bounds_error=False, fill_value=0)
 
     elif REDSHIFT_SELECTION_FUNCTION == 'empty':
@@ -176,7 +177,7 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         skymap = read_sky_map(filename, moc=True)
         # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
         
-        sagn_incat, sagn_outofcat, salt = crossmatch(zpriornorm = redshift_population_prior_normalization,
+        sagn_incat, sagn_outofcat, salt = crossmatch(
                                                     agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
                                                     sky_map=skymap,                                     # GW data
                                                     completeness_map=completeness_map,                  # For getting the surveyed sky-area
@@ -195,10 +196,6 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
                                                     linax=LINAX,                                        # Integration can be done in linspace or in geomspace
                                                     correct_time_dilation=CORRECT_TIME_DILATION,
                                                     **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
-        
-        if len(agn_ra) != 0:
-            sagn_incat *= (4 * np.pi / redshift_population_prior_normalization)  # 4pi comes from uniform-on-sky parameter estimation prior and divide by the normalization of the redshift population prior: int dz Sum(p_red(z|z_obs)) p_rate(z) p_cut(z)
-
         S_agn_incat[gw_idx] = sagn_incat
         S_agn_outofcat[gw_idx] = sagn_outofcat
         S_alt[gw_idx] = salt
@@ -236,15 +233,15 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         print('Done.')
     
 
-    plt.figure()
-    posterior = log_llh[:,fagn_idx]
-    posterior -= np.max(posterior)
-    pdf = np.exp(posterior)
-    norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
-    pdf = pdf / norm
-    plt.plot(LOG_LLH_X_AX, pdf)
-    plt.show()
-    sys.exit(1)
+    # plt.figure()
+    # posterior = log_llh[:,fagn_idx]
+    # posterior -= np.max(posterior)
+    # pdf = np.exp(posterior)
+    # norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
+    # pdf = pdf / norm
+    # plt.plot(LOG_LLH_X_AX, pdf)
+    # plt.show()
+    # sys.exit('Exiting...')
 
 np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 
