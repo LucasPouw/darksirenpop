@@ -154,6 +154,8 @@ def crossmatch_p26(
     surveyed = (cmap_vals_in_gw_skymap != 0)
     skyprob_nonzero = (dP != 0)
 
+    print(np.sum(skyprob_nonzero & pixprob_within_cl), 'FUCKK')
+
     gw_redshift_posterior_marginalized = lambda z: redshift_pdf_given_lumdist_pdf(z, 
                                                                                     allsky_marginal_lumdist_distribution, 
                                                                                     dP=dP[skyprob_nonzero & pixprob_within_cl],

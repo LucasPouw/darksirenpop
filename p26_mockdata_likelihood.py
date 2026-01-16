@@ -13,8 +13,6 @@ TRUE_SOURCE_IDENTIFIERS = ALL_TRUE_SOURCES[:,0]
 
 
 def get_gw_fnames_resampled(fagn_realized):
-
-    print('THIS ONLY WORKS IN TESTING WHEN THE ALTERNATIVE IS PURELY UNIFORM IN COMOVING VOLUME AND NOT TIME DILATION AND STUFF')
     
     agn_rcom = ALL_TRUE_SOURCES[:,1]
     agn_z = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
@@ -23,16 +21,33 @@ def get_gw_fnames_resampled(fagn_realized):
     target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
 
     print('CANNOT DO REPLACE=FALSE WHEN IMPORTANCE RESAMPLING')
-    from_agn_population = np.random.choice(np.arange(len(agn_z)), p=target_population(agn_z) / uniform_comoving_prior(agn_z) / np.sum(target_population(agn_z) / uniform_comoving_prior(agn_z)), size=round(fagn_realized * BATCH))
+    weights = target_population(agn_z) / uniform_comoving_prior(agn_z)
+    if CORRECT_TIME_DILATION:
+        weights *= 1 / (1 + agn_z)
+    from_agn_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=round(fagn_realized * BATCH))
 
     need_these = TRUE_SOURCE_IDENTIFIERS[from_agn_population].astype(int)
     gw_fnames_from_agn = []
     for id in need_these:
         s = f'{SKYMAP_DIR}skymap_0_0_{id:05d}.fits.gz'
         gw_fnames_from_agn.append(s)
-
     gw_fnames_from_agn = np.array(gw_fnames_from_agn)
-    gw_fnames_from_alt = np.random.choice(all_gw_fnames, size=BATCH - gw_fnames_from_agn.shape[0], replace=False)
+
+    if not CORRECT_TIME_DILATION and (MERGER_RATE == 'uniform'):
+        gw_fnames_from_alt = np.random.choice(all_gw_fnames, size=BATCH - gw_fnames_from_agn.shape[0], replace=False)
+    else:
+        weights = merger_rate(agn_z, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS)
+        if CORRECT_TIME_DILATION:
+            weights *= 1 / (1 + agn_z)
+        from_alt_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=BATCH - gw_fnames_from_agn.shape[0])
+        
+        need_these = TRUE_SOURCE_IDENTIFIERS[from_alt_population].astype(int)
+        gw_fnames_from_alt = []
+        for id in need_these:
+            s = f'{SKYMAP_DIR}skymap_0_0_{id:05d}.fits.gz'
+            gw_fnames_from_alt.append(s)
+        gw_fnames_from_alt = np.array(gw_fnames_from_alt)
+    
     gw_fnames = np.append(gw_fnames_from_agn, gw_fnames_from_alt)
 
     return gw_fnames, gw_fnames_from_agn

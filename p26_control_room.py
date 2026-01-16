@@ -25,11 +25,11 @@ import glob
 os.environ["OMP_NUM_THREADS"] = "1"
 N_WORKERS = 16
 
-VERBOSE = False
+VERBOSE = True
 
-N_REALIZATIONS = 200
-BATCH = 100 #len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
-TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
+N_REALIZATIONS = 16
+BATCH = 168 #len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
+TRUE_FAGNS = np.tile(0.01, N_REALIZATIONS)
 REALIZED_FAGNS = np.random.binomial(BATCH, TRUE_FAGNS) / BATCH  # Observed f_agn fluctuates around the true value
 N_TRUE_FAGNS = len(TRUE_FAGNS)
 
@@ -39,7 +39,7 @@ AGN_DIST_DIR = '/home/lucas/Documents/PhD/darksirenpop/agn_distribution'
 SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
 SKYMAP_CL = 0.999
 
-AGN_ZMAX = 1.5  # Maximum true redshift for AGN
+AGN_ZMAX = 10  # Maximum true redshift for AGN
 AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
 QLF = 'kulkarni'  # QLF \in [kulkarni, shenA, shenB]
 AGN_ZPRIOR = f'45.0_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
@@ -67,7 +67,7 @@ MASK_GALACTIC_PLANE = True
 PLOT_CMAP = False
 CMAP_NSIDE = 64
 
-ADD_NAGN_TO_CAT = int(1e5)  # Lower bound, since we prioritize a uniform map, which may require more AGN
+ADD_NAGN_TO_CAT = int(1e3)  # Lower bound, since we prioritize a uniform map, which may require more AGN
 ASSUME_PERFECT_REDSHIFT = False
 AGN_ZERROR = 'quaia'
 if AGN_ZERROR == 'quaia':
@@ -84,10 +84,10 @@ elif MERGER_RATE == 'uniform':
 
 
 ZMIN = 1e-4  # 1e-6 - Some buffer for astropy's lowest possible value
-ZMAX = 1.5   # 10 - Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0
+ZMAX = 10   # 10 - Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0
 
 
-REAL_DATA = False
+REAL_DATA = True
 if REAL_DATA:
     FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{REAL_DATA}_fc_{REDSHIFT_SELECTION_FUNCTION}_rate_{MERGER_RATE}_timedil_{CORRECT_TIME_DILATION}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_GPmask_{MASK_GALACTIC_PLANE}_CL_{SKYMAP_CL}_gwZmax_{ZMAX}'
 else:
@@ -103,7 +103,7 @@ COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value
 AGN_COMDIST_MAX = COSMO.comoving_distance(AGN_ZMAX).value
 
-Z_INTEGRAL_AX = np.linspace(ZMIN, ZMAX, int(512)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
+Z_INTEGRAL_AX = np.linspace(ZMIN, ZMAX, int(1024)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
 LINAX = True  # If geomspace instead of linspace, make False
 
 
