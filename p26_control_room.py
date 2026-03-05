@@ -27,9 +27,9 @@ N_WORKERS = 16
 
 VERBOSE = True
 
-N_REALIZATIONS = 16
-BATCH = 168 #len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
-TRUE_FAGNS = np.tile(0.01, N_REALIZATIONS)
+N_REALIZATIONS = 200
+BATCH = 100 #len(np.array(glob.glob('/home/lucas/Documents/PhD/mockstats/' + 'gw*.dat'))) 
+TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 REALIZED_FAGNS = np.random.binomial(BATCH, TRUE_FAGNS) / BATCH  # Observed f_agn fluctuates around the true value
 N_TRUE_FAGNS = len(TRUE_FAGNS)
 
@@ -42,7 +42,7 @@ SKYMAP_CL = 0.999
 AGN_ZMAX = 10  # Maximum true redshift for AGN
 AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
 QLF = 'kulkarni'  # QLF \in [kulkarni, shenA, shenB]
-AGN_ZPRIOR = f'45.0_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
+AGN_ZPRIOR = f'44.5_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
 
 # Quaia completeness (rows = bins, cols = thresholds)
 THRESHOLD_MAP = {"46.5": 0, "46.0": 1, "45.5": 2, "45.0": 3, "44.5": 4}
@@ -58,7 +58,7 @@ QUAIA_C_VALS = np.array([
                     [1.000, 1.000, 0.482, 0.155, 0.053],
                     [0., 0., 0., 0., 0.]
                 ])
-LUM_THRESH = '45.0'  # '44.5', '45.0', '45.5', '46.0', '46.5' or False for complete catalog
+LUM_THRESH = '46.5'  # '44.5', '45.0', '45.5', '46.0', '46.5' or False for complete catalog
 if AGN_ZPRIOR[:4] != LUM_THRESH:
     print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {LUM_THRESH}, while the AGN redshift posteriors in your catalog may have an inconsistent prior: {AGN_ZPRIOR}')
 
@@ -67,14 +67,14 @@ MASK_GALACTIC_PLANE = True
 PLOT_CMAP = False
 CMAP_NSIDE = 64
 
-ADD_NAGN_TO_CAT = int(1e3)  # Lower bound, since we prioritize a uniform map, which may require more AGN
+ADD_NAGN_TO_CAT = int(23000)  # Lower bound, since we prioritize a uniform map, which may require more AGN
 ASSUME_PERFECT_REDSHIFT = False
 AGN_ZERROR = 'quaia'
 if AGN_ZERROR == 'quaia':
     quaia_errors = pd.read_csv("/home/lucas/Documents/PhD/Quaia_z15.csv")["redshift_quaia_err"]  # Load into memory and sample later
 
-CORRECT_TIME_DILATION = True
-MERGER_RATE = 'madau'  # For the ALT hypothesis!
+CORRECT_TIME_DILATION = False
+MERGER_RATE = 'uniform'  # For the ALT hypothesis!
 if MERGER_RATE == 'madau':
     MERGER_RATE_EVOLUTION = merger_rate_madau_dickinson
     MERGER_RATE_KWARGS = {}
@@ -84,10 +84,10 @@ elif MERGER_RATE == 'uniform':
 
 
 ZMIN = 1e-4  # 1e-6 - Some buffer for astropy's lowest possible value
-ZMAX = 10   # 10 - Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0
+ZMAX = 1.5   # 10 - Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0. Needs to correspond to the input data, it is not enforced automatically!
 
 
-REAL_DATA = True
+REAL_DATA = False
 if REAL_DATA:
     FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{REAL_DATA}_fc_{REDSHIFT_SELECTION_FUNCTION}_rate_{MERGER_RATE}_timedil_{CORRECT_TIME_DILATION}_agnZprior_{AGN_ZPRIOR}_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_GPmask_{MASK_GALACTIC_PLANE}_CL_{SKYMAP_CL}_gwZmax_{ZMAX}'
 else:
@@ -103,7 +103,7 @@ COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value
 AGN_COMDIST_MAX = COSMO.comoving_distance(AGN_ZMAX).value
 
-Z_INTEGRAL_AX = np.linspace(ZMIN, ZMAX, int(1024)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
+Z_INTEGRAL_AX = np.linspace(ZMIN, 10, int(512)+1)  # Sets the resolution of the redshift prior, should capture all information of AGN posteriors, see Gray et al. 2022, 2023
 LINAX = True  # If geomspace instead of linspace, make False
 
 
@@ -222,7 +222,7 @@ def make_latitude_selection(agn_ra, agn_dec, obs_agn_rlum):
                     min=0, max=1
                 )
         hp.graticule()
-        plt.savefig('cmap.pdf', bbox_inches='tight')
+        plt.savefig(f'{PLOT_DIR}/cmap.pdf', bbox_inches='tight')
         plt.close()
     return latitude_mask, completeness_map
 
@@ -281,6 +281,11 @@ def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err):
             agn_posteriors_unnorm = lambda z: likelihood(z) * z_cut(z, zcut=AGN_ZMAX) * AGN_ZPRIOR_FUNCTION(z)
             z_norms = romb(agn_posteriors_unnorm(AGN_POSTERIOR_NORM_AX), dx=dx)
             posteriors = agn_posteriors_unnorm(Z_INTEGRAL_AX) / z_norms[:, None]  # Save the posterior evaluated at the relevant axis
+            # if np.sum(np.isnan(posteriors)) == 513:
+            #     print(z_norms, z_chunk, zerr_chunk)
+            #     plt.figure()
+            #     plt.plot(AGN_POSTERIOR_NORM_AX, AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX).flatten())
+            #     plt.show()
 
             dset[start:end, :] = posteriors
     if VERBOSE:

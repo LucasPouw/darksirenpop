@@ -1,6 +1,7 @@
 import numpy as np
 from default_globals import *
 from astropy.cosmology import z_at_value
+import astropy.units as u
 
 
 def z_cut(z, zcut):
@@ -62,3 +63,11 @@ def redshift_pdf_given_lumdist_pdf(z, lumdist_pdf, **kwargs):
     chi_z = dl / (1 + z)
     dDL_dz = chi_z + (1 + z) * (SPEED_OF_LIGHT_KMS / H_z)
     return lumdist_pdf(dl, **kwargs) * dDL_dz
+
+
+def comdist_pdf_given_redshift_pdf(dc, redshift_pdf, **kwargs):
+    """redshift_pdf is assumed to be normalized"""
+    z = fast_z_at_value(COSMO.comoving_distance, dc * u.Mpc)
+    H_z = COSMO.H(z).value  # H(z) in km/s/Mpc
+    dz_dDc = H_z / SPEED_OF_LIGHT_KMS
+    return redshift_pdf(z, **kwargs) * dz_dDc

@@ -54,20 +54,35 @@ def get_gw_fnames_resampled(fagn_realized):
 
 
 def fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom):
-    '''To preserve overall distribution'''
+    '''To preserve overall distribution, need to add AGN above COMDIST_MAX, where the GW-hosting AGN are.'''
     if AGN_ZPRIOR == 'uniform_comoving_volume':
         n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
-        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, n2complete)
-        agn_ra = np.append(agn_ra, new_phi)
-        agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
-        agn_rcom = np.append(agn_rcom, new_rcom)
-        if VERBOSE:
-            print(f'Adding {n2complete} AGN to get a uniform catalog.')
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MAX, AGN_COMDIST_MAX, n2complete)
 
     else:
-        print(f'WARNING: CANNOT ADD AGN HIGHER THAN ZMAX TO CATALOG WITH POPULATION: {AGN_ZPRIOR}')
-        assert AGN_ZMAX == ZMAX
-        n2complete = 0
+        rcom_integrate_ax = np.linspace(COMDIST_MIN, AGN_COMDIST_MAX, 1024*4+1)
+        total = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, AGN_ZPRIOR_FUNCTION), dx=np.diff(rcom_integrate_ax)[0])
+        rcom_integrate_ax = np.linspace(COMDIST_MIN, COMDIST_MAX, 1024*4+1)
+        current = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, AGN_ZPRIOR_FUNCTION), dx=np.diff(rcom_integrate_ax)[0])
+
+        n2complete = int(round(len(agn_ra) * ( total / current - 1)))
+
+        new_theta, new_phi = sample_spherical_angles(n2complete)
+
+        norm = romb(AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX) * (1 - z_cut(AGN_POSTERIOR_NORM_AX, zcut=ZMAX)), dx=np.diff(AGN_POSTERIOR_NORM_AX)[0])
+        target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) * (1 - z_cut(z, zcut=ZMAX)) / norm
+        cdf = np.cumsum(target_population(AGN_POSTERIOR_NORM_AX))
+        cdf /= cdf[-1]
+        unif = np.random.rand(n2complete)
+        new_z = np.interp(unif, cdf, AGN_POSTERIOR_NORM_AX)
+        new_rcom = COSMO.comoving_distance(new_z).value
+
+    if VERBOSE:
+        print(f'Adding {n2complete} AGN above GW zmax ({ZMAX}) to get a catalog with distribution: {AGN_ZPRIOR}.')
+
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
 
     return agn_ra, agn_dec, agn_rcom, n2complete
 
@@ -81,13 +96,12 @@ def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps):
     else:
         new_theta, new_phi = sample_spherical_angles(nsamps)
 
-        norm = romb(AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX), dx=np.diff(Z_INTEGRAL_AX)[0])
+        norm = romb(AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX), dx=np.diff(AGN_POSTERIOR_NORM_AX)[0])
         target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
-
-        cdf = np.cumsum(target_population(Z_INTEGRAL_AX))
+        cdf = np.cumsum(target_population(AGN_POSTERIOR_NORM_AX))
         cdf /= cdf[-1]
         unif = np.random.rand(nsamps)
-        new_z = np.interp(unif, cdf, Z_INTEGRAL_AX)
+        new_z = np.interp(unif, cdf, AGN_POSTERIOR_NORM_AX)
         new_rcom = COSMO.comoving_distance(new_z).value
 
     agn_ra = np.append(agn_ra, new_phi)
@@ -108,30 +122,31 @@ def process_one_fagn(fagn_idx, fagn_realized):
         gw_fnames = gw_fnames_per_realization[:,fagn_idx]
         gw_fnames_from_agn = gw_fnames[:round(fagn_realized * BATCH)]
 
-    elif AGN_ZPRIOR == '45.0_kulkarni':
-        gw_fnames, gw_fnames_from_agn = get_gw_fnames_resampled(fagn_realized)
+    # elif AGN_ZPRIOR == '45.0_kulkarni':
+    #     gw_fnames, gw_fnames_from_agn = get_gw_fnames_resampled(fagn_realized)
 
     else:
-        sys.exit(f'Resampling of GWs from population not implemented: {AGN_ZPRIOR}')
+        gw_fnames, gw_fnames_from_agn = get_gw_fnames_resampled(fagn_realized)
+        # sys.exit(f'Resampling of GWs from population not implemented: {AGN_ZPRIOR}')
 
     gw_identifiers = sorted(np.array([f[-13:-8] for f in gw_fnames_from_agn]).astype(int))
     true_sources = ALL_TRUE_SOURCES[np.searchsorted(TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
     ### Complete catalog to preserve uniform in comoving volume distribution ###
-    agn_ra, agn_dec, agn_rcom, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom)
+    agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom)
     ############################################################################
     
     if ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
         if VERBOSE:
             print(f'Adding {ADD_NAGN_TO_CAT - n2complete} more AGN to get to the requested number of AGN.')
 
-        agn_ra_complete, agn_dec_complete, agn_rcom = add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, ADD_NAGN_TO_CAT - n2complete)
+        agn_ra_complete, agn_dec_complete, agn_rcom_complete = add_agn_to_catalog(agn_ra_complete, agn_dec_complete, agn_rcom_complete, ADD_NAGN_TO_CAT - n2complete)
 
-    if len(agn_rcom) == 0:
-        obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom), np.empty_like(agn_rcom)
+    if len(agn_rcom_complete) == 0:
+        obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom_complete), np.empty_like(agn_rcom_complete)
     else:
-        obs_agn_redshift_complete, agn_redshift_err_complete = get_observed_redshift_from_rcom(agn_rcom)
+        obs_agn_redshift_complete, agn_redshift_err_complete = get_observed_redshift_from_rcom(agn_rcom_complete)
     obs_agn_rlum_complete = COSMO.luminosity_distance(obs_agn_redshift_complete).value
 
     ### Make an incomplete AGN catalog from these coordinates ###
@@ -153,15 +168,16 @@ def process_one_fagn(fagn_idx, fagn_realized):
         
     elif REDSHIFT_SELECTION_FUNCTION == 'continuous':
         # Measure completeness in the surveyed sky area
-        if MASK_GALACTIC_PLANE:
-            latitude_mask, _ = make_latitude_selection(agn_ra_complete, agn_dec_complete, obs_agn_rlum_complete)
-            _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
-        else:
-            _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete, agn_redshift_err_complete, label='COMPLETE')
+        latitude_mask, _ = make_latitude_selection(agn_ra_complete, agn_dec_complete, obs_agn_rlum_complete)
+        # _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
+        sum_of_posteriors_complete = np.sum(latitude_mask) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX) / romb(AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX), dx=np.diff(AGN_POSTERIOR_NORM_AX)[0])
 
         redshift_agn_selection_function = np.zeros_like(sum_of_posteriors_complete)
         no_zero = (sum_of_posteriors_complete != 0)
         redshift_agn_selection_function[no_zero] = sum_of_posteriors_incomplete[no_zero] / sum_of_posteriors_complete[no_zero]
+
+        redshift_agn_selection_function[redshift_agn_selection_function > 1] = 1
+        
         redshift_completeness = interp1d(Z_INTEGRAL_AX, redshift_agn_selection_function, bounds_error=False, fill_value=0)
 
     elif REDSHIFT_SELECTION_FUNCTION == 'empty':
@@ -230,6 +246,6 @@ with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:  # 1 proc, 11.5s/it
         fagn_idx, llh = future.result()
         log_llh[:,fagn_idx] = llh
 
-fname = os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME)
+fname = f'{POST_DIR}/{FAGN_POSTERIOR_FNAME}'
 np.save(fname, log_llh)
-print(f'Posterior is located at: {fname}')
+print(f'Posterior is located at: {fname}.npy')

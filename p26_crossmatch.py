@@ -84,7 +84,7 @@ def crossmatch_p26(
                     redshift_completeness,
                     agn_ra, 
                     agn_dec, 
-                    agn_lumdist,  # agn_lumdist is only needed for speed up of s_agn_cw when assume_perfect_redshift = True - is it worth the added complexity?
+                    agn_lumdist,  # agn_lumdist is only needed for speed up of s_agn_incat when assume_perfect_redshift = True - is it worth the added complexity?
                     agn_redshift, 
                     skymap_cl, 
                     agn_redshift_err, 
@@ -123,7 +123,7 @@ def crossmatch_p26(
         print('BAD SKYMAP')
         return np.nan, np.nan, np.nan
 
-    # Find the pixel that contains the injection.
+    # Find the pixels that contain AGN.
     order, ipix = moc.uniq2nest(sky_map["UNIQ"])
     max_order = np.max(order)
     max_nside = ah.level_to_nside(max_order)
@@ -153,8 +153,6 @@ def crossmatch_p26(
     cmap_vals_in_gw_skymap = completeness_map[pix_idx]
     surveyed = (cmap_vals_in_gw_skymap != 0)
     skyprob_nonzero = (dP != 0)
-
-    print(np.sum(skyprob_nonzero & pixprob_within_cl), 'FUCKK')
 
     gw_redshift_posterior_marginalized = lambda z: redshift_pdf_given_lumdist_pdf(z, 
                                                                                     allsky_marginal_lumdist_distribution, 

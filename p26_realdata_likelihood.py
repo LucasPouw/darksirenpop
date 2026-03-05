@@ -140,9 +140,9 @@ for gw_idx, key in enumerate(gw_keys):
             print('!!! HIGHER AGN PROB !!!')            
 
 
-np.save(f's_agn_incat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_incat_dict)
-np.save(f's_agn_outofcat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_outofcat_dict)
-np.save(f's_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
+np.save(f'{POST_DIR}/s_agn_incat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_incat_dict)
+np.save(f'{POST_DIR}/s_agn_outofcat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_outofcat_dict)
+np.save(f'{POST_DIR}/s_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
 
 S_agn_incat = np.array([S_agn_incat_dict[key] for key in gw_keys])
 S_agn_outofcat = np.array([S_agn_outofcat_dict[key] for key in gw_keys])
@@ -163,7 +163,9 @@ log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
 if VERBOSE:
     print('Done.')
 
-np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
+fname = f'{POST_DIR}/{FAGN_POSTERIOR_FNAME}'
+np.save(fname, log_llh)
+print(f'Posterior is located at: {fname}.npy')
 
 ### Plot posterior ###
 posterior = log_llh
@@ -173,5 +175,5 @@ norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
 pdf = pdf / norm
 plt.figure()
 plt.plot(LOG_LLH_X_AX, pdf)
-plt.savefig(f'real_posterior_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_agnZprior_{AGN_ZPRIOR}.pdf', bbox_inches='tight')
+plt.savefig(f'{PLOT_DIR}/real_posterior_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_agnZprior_{AGN_ZPRIOR}.pdf', bbox_inches='tight')
 plt.show()

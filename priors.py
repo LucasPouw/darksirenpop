@@ -424,3 +424,49 @@ class BBH_broken_powerlaw(BBHMasspriors):
 
         self.mdis={'mass_1_source': _cmp.SmoothedProb(origin_prob=self.m1pr, bottom=self.mminbh, bottom_smooth=self.delta_m),
                       'mass_2_source':_cmp.SmoothedProb(origin_prob=self.m2pr, bottom=self.mminbh, bottom_smooth=self.delta_m)}
+
+
+# class BBH_broken_powerlaw_multi_peak_gaussian(m_priors):
+
+#     def __init__(self,alpha_1=6.75,alpha_2=6.75,b=0.5,beta=0.8,mminbh=4.98,mmaxbh=112.5,lambda_g=0.03,lambda_g_low= 0.5,mu_g_low=10.5,sigma_g_low=3.88,mu_g_high=32.27,sigma_g_high=5,delta_m=5):
+#         super().__init__()
+
+#         self.update_parameters(param_dict={'alpha_1':alpha_1,'alpha_2':alpha_2,'b':b,'beta':beta,'mminbh':mminbh,'mmaxbh':mmaxbh,
+#                                            'lambda_g':lambda_g,'lambda_g_low':lambda_g_low,'mu_g_low':mu_g_low,'sigma_g_low':sigma_g_low,'mu_g_high':mu_g_high,'sigma_g_high':sigma_g_high,'delta_m':delta_m})
+    
+#     def update_mass_priors(self):
+#         ''' 
+#         This method creates a dictionary of mass distributions objects.         
+#         It sets the maximum value of the primary mass distribution mmax to self.mdis['mass_1'].maximum, 
+#         the minimum value of the secondary mass distribution mmin to mminns, 
+#         and the maximum value of the secondary mass distribution mmax2 to mmaxns.
+#         It's called by update_parameters everytime the mass priors parameters are changed.
+#         Every mass priors model has a different implementation because the distributions are different,
+#         and mmax, mmin and mmax2 definitions depend on the mass prior model.          
+#         '''
+
+#         self.break_point = self.mminbh+self.b*(self.mmaxbh-self.mminbh)
+#         self.m1pr =_cmp.BrokenPowerLawDoubleGaussian_math(min_pl=self.mminbh,max_pl=self.mmaxbh,lambda_g=self.lambda_g,lambda_g_low=self.lambda_g_low,
+#                                                     mu_g_low=self.mu_g_low,sigma_g_low=self.sigma_g_low,mu_g_high=self.mu_g_high,
+#                                                     sigma_g_high=self.sigma_g_high,min_g=self.mminbh,max_g=self.mu_g_high+5*self.sigma_g_high,
+#                                                     alpha_1=-self.alpha_1,alpha_2=-self.alpha_2,break_point=self.break_point)
+        
+
+#         self.m2pr = _cmp.PowerLaw_math(alpha=self.beta,min_pl=self.mminbh,max_pl=np.max([self.mu_g_low+5*self.sigma_g_low,self.mmaxbh]))
+
+#         self.mdis={'mass_1': _cmp.SmoothedProb(origin_prob=self.m1pr,high_pass_min=self.mminbh,high_pass_smooth=self.delta_m),
+#                       'mass_2': _cmp.SmoothedProb(origin_prob=self.m2pr,high_pass_min=self.mminbh,high_pass_smooth=self.delta_m)}
+
+#         self.mmax = self.mdis['mass_1'].maximum
+#         self.mmin = self.mminbh
+#         self.mmax2 = self.mmaxbh
+
+#     @staticmethod
+#     def grid_constraint_call(constraint_grid, values, parameter_grid, fixed_params):
+#         new_grid = peaks_grid_constraint(constraint_grid, values, parameter_grid, fixed_params)
+#         return new_grid
+    
+#     @staticmethod
+#     def sampling_constraint_call(prior_dict):
+#         new_dict = peaks_sampling_constraint(prior_dict)
+#         return new_dict
