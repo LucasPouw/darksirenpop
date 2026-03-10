@@ -1,30 +1,33 @@
 import numpy as np
-from utils import uniform_shell_sampler, make_nice_plots, spherical2cartesian, cartesian2spherical
+from utils import uniform_shell_sampler, spherical2cartesian, cartesian2spherical
 from default_globals import *
 import astropy.units as u
 import sys, os
-from priors import *
 import h5py
 from astropy.table import Table
 import shutil
 import glob
 from redshift_utils import fast_z_at_value
 from scipy.special import gammaincinv
+from scipy.interpolate import interp1d
 
 
-########################### INPUT PARAMETERS #################################
-MAKE_SKYMAPS = True 
+############## INPUT PARAMETERS ##############
+MAKE_SKYMAPS = False 
 ID = 'z'
+V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf.npy'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 NCPU = os.cpu_count()
 N_POSTERIOR_SAMPLES = int(1e5)
 ZMIN = 1e-6
-ZMAX = 10  # p_rate(z > ZMAX) = 0
+ZMAX = 1.5  # p_rate(z > ZMAX) = 0
+BATCH = int(100)
+##############################################
+
+
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value  # Maximum comoving distance in Mpc
-BATCH = int(2e4)
-####################################################################
 
 
 def check_directory(directory):
@@ -45,12 +48,17 @@ def check_directory(directory):
 
 
 def sample_v90():
-    return
+    '''Inverse CDF sampling of observed distribution of log10 v90 in cMpc'''
+    cdf_vals, x_grid = np.load(V90_CDF)
+    inv_cdf = interp1d(cdf_vals, x_grid)
+    u = np.random.rand(BATCH)
+    return 10**inv_cdf(u)
 
 
 def v90_to_sigma(v90):
+    '''Going from the 90th percentile radius to sigma using the Maxwell-Boltzmann distribution.'''
     r90 = (v90 * 3 / (4 * np.pi))**(1/3)
-    return r90 / np.sqrt(2 * gammaincinv(3/2, p=0.9))
+    return r90 / np.sqrt(2 * gammaincinv(3/2, 0.9))
 
 
 def make_real_gw_positions():
@@ -67,6 +75,7 @@ def make_observed_gw_positions(true_x, true_y, true_z):
 
 
 def make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig):
+    '''TODO: apply a prior, right?'''
     for i in range(BATCH):
         posterior_samples_x = np.random.normal(loc=obs_x[i], scale=sig[i], size=N_POSTERIOR_SAMPLES)
         posterior_samples_y = np.random.normal(loc=obs_y[i], scale=sig[i], size=N_POSTERIOR_SAMPLES)
@@ -88,10 +97,9 @@ def make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig):
 
 
 def save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z):
-    '''Could've just used spherical coordinates directly, oh well.'''
     for _, infile in enumerate(glob.glob(f'{POST_SAMPS_DIR}/gw_{trial_idx}_{fagn_idx}_*.h5')):
         gw_idx = infile[-8:-3]
-        r, theta, phi = cartesian2spherical(true_x[int(gw_idx)], true_y[int(gw_idx)], true_z[int(gw_idx)])
+        r, theta, phi = cartesian2spherical(true_x[int(gw_idx)], true_y[int(gw_idx)], true_z[int(gw_idx)])  # Could've just used spherical coordinates directly, oh well.
         with open(f'true_r_theta_phi_{ID}.txt', 'a') as f:
             f.write(f'{gw_idx}, {r}, {theta}, {phi}\n')
     return
@@ -115,16 +123,15 @@ def make_skymaps(trial_idx, fagn_idx):
 
 def main(trial_idx, fagn_idx):
     check_directory(POST_SAMPS_DIR)
-    check_directory(SKYMAP_DIR)
-    os.environ["OMP_NUM_THREADS"] = "1"  # Important for proper threading when making skymaps
-
     true_x, true_y, true_z = make_real_gw_positions()
     obs_x, obs_y, obs_z, sig = make_observed_gw_positions(true_x, true_y, true_z)
     make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig)
     save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z)
-    if MAKE_SKYMAPS:
-        make_skymaps(trial_idx, fagn_idx)
 
+    if MAKE_SKYMAPS:
+        check_directory(SKYMAP_DIR)
+        os.environ["OMP_NUM_THREADS"] = "1"  # Important for proper threading when making skymaps
+        make_skymaps(trial_idx, fagn_idx)
     return
 
 

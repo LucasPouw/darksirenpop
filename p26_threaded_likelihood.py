@@ -7,9 +7,11 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-ALL_TRUE_SOURCES = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
+ALL_TRUE_SOURCES = np.genfromtxt(f'/home/lucas/Documents/PhD/true_r_theta_phi_{DIRECTORY_ID}.txt', delimiter=',')
 ALL_TRUE_SOURCES = ALL_TRUE_SOURCES[ALL_TRUE_SOURCES[:, 0].argsort()]
 TRUE_SOURCE_IDENTIFIERS = ALL_TRUE_SOURCES[:,0]
+all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
+gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
 
 def get_gw_fnames_resampled(fagn_realized):
@@ -109,9 +111,6 @@ def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps):
     agn_rcom = np.append(agn_rcom, new_rcom)
 
     return agn_ra, agn_dec, agn_rcom
-
-all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
-gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
 
 
 def process_one_fagn(fagn_idx, fagn_realized):

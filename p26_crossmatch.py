@@ -9,8 +9,9 @@ from utils import gaussian
 from numba import njit, prange
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
 # from tqdm import tqdm
-# import time
+import time
 # import sys
 
 """
@@ -77,6 +78,201 @@ def LOS_lumdist_ansatz(dl, distnorm, distmu, distsigma):
     return dl**2 * distnorm * np.exp(-0.5 * ((dl - distmu) / distsigma)**2) / (np.sqrt(2 * np.pi) * distsigma)  #gaussian(dl, distmu, distsigma)
 
 
+def angular_sep(ra1,dec1,ra2,dec2):
+    """Find the angular separation between two points, (ra1,dec1)
+    and (ra2,dec2), in radians."""
+
+    cos_angle = np.sin(dec1)*np.sin(dec2) + np.cos(dec1)*np.cos(dec2)*np.cos(ra1-ra2)
+    angle = np.arccos(cos_angle)
+    return angle
+
+
+def ra_dec_from_ipix(nside, ipix, nest=False):
+    """RA and dec from HEALPix index"""
+    (theta, phi) = hp.pix2ang(nside, ipix, nest=nest)
+    return (phi, np.pi/2.-theta)
+
+
+def identify_samples(idx, ra, dec, nside, nested, minsamps=100):
+        """
+        Find the samples required
+
+        Parameters
+        ----------
+        idx : int
+            The pixel index
+        minsamps : int, optional
+            The threshold number of samples to reach per pixel
+
+        Return
+        ------
+        sel : array of ints
+            The indices of posterior samples for pixel idx
+        """
+
+        ipix_samples = hp.pixelfunc.ang2pix(nside, np.pi/2 - dec, ra, nest=nested)
+        sel = np.where(ipix_samples == idx)[0]
+        if len(sel) >= minsamps:
+            # print("{} samples fall in pix {}".format(len(sel),idx))
+            return sel
+
+        # not enough samples in pixel 'idx', we need to extend the search
+        racent, deccent = ra_dec_from_ipix(nside, idx, nest=nested)
+        separations = angular_sep(racent, deccent, ra, dec)
+        sep = hp.pixelfunc.max_pixrad(nside)/2. # choose initial separation
+        step = sep/2. # choose step size for increasing radius
+
+        sel = np.where(separations < sep)[0] # find all the samples within the angular radius sep from the pixel centre
+        nsamps = len(sel)
+        while nsamps < minsamps:
+            sep += step
+            sel = np.where(separations < sep)[0]
+            nsamps = len(sel)
+            if sep > np.pi:
+                raise ValueError("Problem with the number of posterior samples.")
+        # print('pixel idx {}: angular radius: {} radians, No. samples: {}'.format(idx, sep, len(sel)))
+
+        return sel
+
+
+def crossmatch_from_samples_p26(posterior_samples,
+                                z_integral_ax,
+                                agn_posterior_dset,
+                                agn_ra, 
+                                agn_dec, 
+                                minpix=30,
+                                skymap_cl=0.999,
+                                minsamps=100):
+
+    dec = posterior_samples['mock']['posterior_samples']['dec'][()]
+    theta = 0.5 * np.pi - dec  # colatitude [0, pi]
+    phi   = posterior_samples['mock']['posterior_samples']['ra'][()]  # longitude [0, 2pi]
+    z     = posterior_samples['mock']['posterior_samples']['redshift'][()]
+    Nsamps = len(theta)
+
+    ### Pixelize samples ###
+    nside = 8
+    npix_in_CL = 0
+    while npix_in_CL <= minpix:
+        nside *= 2
+        dA = hp.nside2pixarea(nside)  # sr
+
+        ipix_at_samps = hp.ang2pix(nside, theta, phi, nest=True)
+        counts = np.bincount(ipix_at_samps, minlength=hp.nside2npix(nside))
+        dP_dA = counts / (Nsamps * dA)  # 1/sr
+        dP = dP_dA * dA  # Dimensionless probability density in each pixel
+
+        ind_sorted = np.argsort(-dP)
+        cumprob = np.cumsum(dP[ind_sorted])
+        cumprob[cumprob > 1] = 1.  # Correcting floating point error which could cause issues when skymap_cl == 1
+        lim_ind = np.where(cumprob > skymap_cl)[0][0]
+
+        indices_in_CL = ind_sorted[:lim_ind]
+        npix_in_CL = len(indices_in_CL)
+
+        # print(npix_in_CL, 'minpix =', minpix)
+        # hp.mollview(dP, nest=True, unit='probability per pixel', )
+        # plt.show()
+    print(f'Ended with {npix_in_CL} pixels using nside = {nside}.')
+
+    ### Find the pixels that contain AGN ###
+    agn_theta = 0.5 * np.pi - agn_dec
+    agn_phi = agn_ra
+    ipix_at_agn = hp.ang2pix(nside, agn_theta, agn_phi, nest=True)
+    mask_agn_in_cl = np.isin(ipix_at_agn, indices_in_CL)  # Selects the AGN within the specified CL localization area
+    ipix_at_agn_in_cl = ipix_at_agn[mask_agn_in_cl]
+    nagn_in_cl = np.sum(mask_agn_in_cl)
+    unique_ipix_with_agn_in_cl = np.unique(ipix_at_agn_in_cl)
+    print(f'Found {nagn_in_cl} AGN in {len(unique_ipix_with_agn_in_cl)} pixels within the {skymap_cl * 100}% CL. Given uniform-on-sky AGN distribution, expected {dA * npix_in_CL / (4 * np.pi) * len(agn_ra)}')
+
+    ### AGN-origin population part ###
+    total_n_agn = len(agn_ra)
+    agn_redshift_posteriors_in_cl = agn_posterior_dset[mask_agn_in_cl,:]  # Load the AGN posteriors
+    agn_posterior_idx = np.arange(nagn_in_cl)
+    t = 0
+    LOSzprior = np.zeros_like(z_integral_ax)
+    integrand = np.zeros_like(z_integral_ax)
+    px_zOmegaparam = np.zeros((len(unique_ipix_with_agn_in_cl), len(z_integral_ax)))
+    for i, ipix in enumerate(unique_ipix_with_agn_in_cl):
+        s = time.time()
+
+        # 1. Obtain GW redshift posterior along the LOS
+        skyprob = dP[ipix]
+        # print(skyprob, 'skyprob')
+
+        # samp_mask = (ipix_at_samps == ipix)
+        samp_mask = identify_samples(ipix, ra=phi, dec=dec, nside=nside, nested=True, minsamps=minsamps)  # Search in annuli for samples if the number of samples in the pixel is < minsamps
+        z_samps_in_pix = z[samp_mask]
+
+        ### TODO: reweight samples by PEprior and mass population ###
+
+        # Want to evaluate the KDE on as few points as possible to save computation time
+        zmin_temp = np.min(z_samps_in_pix)*0.5
+        zmax_temp = np.max(z_samps_in_pix)*2.
+        z_array_temp = np.linspace(zmin_temp, zmax_temp, 100)  
+        los_gw_posterior = gaussian_kde(z_samps_in_pix)  # If gaussian_kde ever crashes, gwcosmo has some fix that I don't understand and don't want to implement immediately
+
+        # Enforce the evaluation of the posterior on the same redshift axis
+        los_gw_posterior_interp = interp1d(z_array_temp, los_gw_posterior(z_array_temp), kind='cubic')
+        z_mask = (zmin_temp < z_integral_ax) & (z_integral_ax < zmax_temp)
+        px_zOmegaparam[i, z_mask] = los_gw_posterior_interp(z_integral_ax[z_mask])
+
+        # if len(z_samps_in_pix) < 200:
+        #     plt.figure()
+        #     plt.plot(z_array_temp, eval_los_gw_posterior)
+        #     plt.plot(z_integral_ax[mask], final_los_posterior)
+        #     plt.show()
+
+        # 2. Obtain the LOS redshift prior
+        agn_posterior_idx_in_pix = agn_posterior_idx[ipix_at_agn_in_cl == ipix]  # Selects all AGN within the current pixel
+        agn_redshift_posteriors_in_pix = agn_redshift_posteriors_in_cl[agn_posterior_idx_in_pix,:]
+
+        # The population prior consists of AGN posteriors, modulated by redshift evolving merger rates (done later)
+        sum_of_agn_posteriors = np.sum(agn_redshift_posteriors_in_pix, axis=0)
+        integrand += dP_dA[ipix] * px_zOmegaparam[i, :] * sum_of_agn_posteriors
+
+        # plt.plot(np.arange(len(LOSzprior)), sum_of_agn_posteriors)
+        # plt.show()
+        LOSzprior += sum_of_agn_posteriors * dP_dA[ipix]
+        t +=  time.time() - s
+    print('total time:', t)
+        
+    # Normalize
+    integrand /= total_n_agn
+    
+    plt.figure()
+    plt.plot(z_integral_ax, LOSzprior)
+    plt.show()
+
+    plt.figure()
+    plt.plot(z_integral_ax, integrand)
+    plt.show()
+
+
+    # 3. Combine with the rate and integrate
+
+
+
+        
+
+    s = time.time()
+    allsky_gw_posterior = gaussian_kde(z)
+    eval_allsky_gw_posterior = allsky_gw_posterior(z_integral_ax)
+    print('allsky t=', time.time() - s)
+
+        # print(np.sum(mask))
+        # if np.sum(mask) < 10:
+        #     plt.figure()
+        #     plt.hist(samps_in_pix, density=True, histtype='step')
+        #     plt.plot(z_integral_ax, eval_los_gw_posterior)
+        #     plt.xlim(0, 2)
+        #     plt.show()
+    
+
+    sys.exit(1)
+    return
+
+
 def crossmatch_p26(
                     agn_posterior_dset, 
                     sky_map,
@@ -123,7 +319,7 @@ def crossmatch_p26(
         print('BAD SKYMAP')
         return np.nan, np.nan, np.nan
 
-    # Find the pixels that contain AGN.
+    # Find the pixels that contain AGN
     order, ipix = moc.uniq2nest(sky_map["UNIQ"])
     max_order = np.max(order)
     max_nside = ah.level_to_nside(max_order)
@@ -285,10 +481,10 @@ def crossmatch_p26(
                 agn_posterior_idx_in_pix = agn_posterior_idx[gw_pixidx_at_agn_locs_within_cl == gw_idx]
                 agn_redshift_posteriors_in_pix = agn_redshift_posteriors_in_gw[agn_posterior_idx_in_pix, :]
                 
-                # The population prior consists of AGN posteriors, modulated by redshift evolving merger rates (done later), normalization is done outside this function (Namely, 06-10-2025: in p26_likelihood.py)
+                # The population prior consists of AGN posteriors, modulated by redshift evolving merger rates (done later)
                 sum_of_agn_posteriors = np.sum(agn_redshift_posteriors_in_pix, axis=0)
                 # LOSzprior += sum_of_agn_posteriors
-                integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * sum_of_agn_posteriors
+                integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * sum_of_agn_posteriors  # TODO: dP_dA or dP?
             # Normalize
             integrand /= total_n_agn
             # LOSzprior /= total_n_agn

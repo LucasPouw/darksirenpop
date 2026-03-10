@@ -3,15 +3,60 @@ import glob
 from utils import uniform_shell_sampler, sample_spherical_angles
 from ligo.skymap.io.fits import read_sky_map
 from p26_crossmatch import crossmatch_p26 as crossmatch
+from p26_crossmatch import crossmatch_from_samples_p26
 import sys
+from scipy.integrate import simpson
 
 
-ALL_TRUE_SOURCES = np.genfromtxt('/home/lucas/Documents/PhD/true_r_theta_phi_all.txt', delimiter=',')
+USE_SKYMAPS = False
+ALL_TRUE_SOURCES = np.genfromtxt(f'/home/lucas/Documents/PhD/true_r_theta_phi_{DIRECTORY_ID}.txt', delimiter=',')
 ALL_TRUE_SOURCES = ALL_TRUE_SOURCES[ALL_TRUE_SOURCES[:, 0].argsort()]
 TRUE_SOURCE_IDENTIFIERS = ALL_TRUE_SOURCES[:,0]
 
 
+if USE_SKYMAPS:
+    all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
+    FILE_TYPE = 'skymap'
+else:
+    all_gw_fnames = np.array(glob.glob(SAMPLES_DIR + 'gw_*'))
+    FILE_TYPE = 'samples'
+
+if AGN_ZPRIOR == 'uniform_comoving_volume':
+    gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
+
+
+def get_id_from_fname(fname):
+    file_type = fname.split('/')[-1].split('_')[-4]
+    if file_type == 'gw':
+        return fname[-8:-3]
+    elif file_type == 'skymap':
+        return fname[-13:-8]
+    else:
+        sys.exit(f'Extracted the following file type from file name and did not recognize: {file_type}')
+    return 
+
+def get_fnames(ids, file_type):
+    '''file_type either skymap or samples'''
+    if file_type == 'samples':
+        label = 'gw'
+        dir = SAMPLES_DIR
+    elif file_type == 'skymap':
+        label = 'skymap'
+        dir = SKYMAP_DIR
+    else:
+        sys.exit(f'Do not recognize file type: {file_type}. Choose between str(skymap) or str(samples).')
+
+    fnames = []
+    for id in ids:
+        s = f'{dir}{label}_0_0_{id:05d}.fits.gz'
+        fnames.append(s)
+    return np.array(fnames)
+
+
 def get_gw_fnames_resampled(fagn_realized):
+    '''
+    Currently assuming ALT GW hosts are always distributed uniform in comoving volume, but rate evolution can be set.
+    '''
     
     agn_rcom = ALL_TRUE_SOURCES[:,1]
     agn_z = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
@@ -26,11 +71,7 @@ def get_gw_fnames_resampled(fagn_realized):
     from_agn_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=round(fagn_realized * BATCH))
 
     need_these = TRUE_SOURCE_IDENTIFIERS[from_agn_population].astype(int)
-    gw_fnames_from_agn = []
-    for id in need_these:
-        s = f'{SKYMAP_DIR}skymap_0_0_{id:05d}.fits.gz'
-        gw_fnames_from_agn.append(s)
-    gw_fnames_from_agn = np.array(gw_fnames_from_agn)
+    gw_fnames_from_agn = get_fnames(need_these, file_type=FILE_TYPE)
 
     if not CORRECT_TIME_DILATION and (MERGER_RATE == 'uniform'):
         gw_fnames_from_alt = np.random.choice(all_gw_fnames, size=BATCH - gw_fnames_from_agn.shape[0], replace=False)
@@ -41,11 +82,7 @@ def get_gw_fnames_resampled(fagn_realized):
         from_alt_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=BATCH - gw_fnames_from_agn.shape[0])
         
         need_these = TRUE_SOURCE_IDENTIFIERS[from_alt_population].astype(int)
-        gw_fnames_from_alt = []
-        for id in need_these:
-            s = f'{SKYMAP_DIR}skymap_0_0_{id:05d}.fits.gz'
-            gw_fnames_from_alt.append(s)
-        gw_fnames_from_alt = np.array(gw_fnames_from_alt)
+        gw_fnames_from_alt = get_fnames(need_these, file_type=FILE_TYPE)
     
     gw_fnames = np.append(gw_fnames_from_agn, gw_fnames_from_alt)
 
@@ -109,9 +146,6 @@ def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps):
 
     return agn_ra, agn_dec, agn_rcom
 
-all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
-gw_fnames_per_realization = np.random.choice(all_gw_fnames, size=(BATCH, N_TRUE_FAGNS), replace=False)  # Only unique GWs for a single data set
-
 
 log_llh = np.zeros((len(LOG_LLH_X_AX), N_TRUE_FAGNS))
 for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
@@ -126,7 +160,7 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
     else:
         gw_fnames, gw_fnames_from_agn = get_gw_fnames_resampled(fagn_realized)
 
-    gw_identifiers = sorted(np.array([f[-13:-8] for f in gw_fnames_from_agn]).astype(int))
+    gw_identifiers = sorted(np.array([get_id_from_fname(f) for f in gw_fnames_from_agn]).astype(int))
     true_sources = ALL_TRUE_SOURCES[np.searchsorted(TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
@@ -134,11 +168,11 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
     agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom)
     ############################################################################
 
-    plt.figure()
-    plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc), density=True, bins=100)
-    plt.plot(AGN_POSTERIOR_NORM_AX, AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX))
-    plt.show()
-    sys.exit(1)
+    # plt.figure()
+    # plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc), density=True, bins=100)
+    # plt.plot(AGN_POSTERIOR_NORM_AX, AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX))
+    # plt.show()
+    # sys.exit(1)
     
     if ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
         if VERBOSE:
@@ -148,9 +182,10 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
 
     if len(agn_rcom_complete) == 0:
         obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom_complete), np.empty_like(agn_rcom_complete)
+        obs_agn_rlum_complete = np.empty_like(agn_rcom_complete)
     else:
         obs_agn_redshift_complete, agn_redshift_err_complete = get_observed_redshift_from_rcom(agn_rcom_complete)
-    obs_agn_rlum_complete = COSMO.luminosity_distance(obs_agn_redshift_complete).value
+        obs_agn_rlum_complete = COSMO.luminosity_distance(obs_agn_redshift_complete).value
 
     ### Make an incomplete AGN catalog from these coordinates ###
     incomplete_catalog_mask, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra_complete, agn_dec_complete, obs_agn_rlum_complete, obs_agn_redshift_complete)
@@ -175,8 +210,9 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         # _, sum_of_posteriors_complete = get_agn_posteriors(fagn_idx, obs_agn_redshift_complete[latitude_mask], agn_redshift_err_complete[latitude_mask], label='COMPLETE')
 
         true_dist = np.sum(latitude_mask) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX) / romb(AGN_ZPRIOR_FUNCTION(AGN_POSTERIOR_NORM_AX), dx=np.diff(AGN_POSTERIOR_NORM_AX)[0])
+        # sys.exit('whoops forgot to uncomment this shit')
 
-        print(np.sum(incomplete_catalog_mask), len(obs_agn_redshift))
+        # print(np.sum(incomplete_catalog_mask), len(obs_agn_redshift))
         # redshift_agn_selection_function = np.zeros_like(sum_of_posteriors_complete)
         # no_zero = (sum_of_posteriors_complete != 0)
         # redshift_agn_selection_function[no_zero] = sum_of_posteriors_incomplete[no_zero] / sum_of_posteriors_complete[no_zero]
@@ -188,15 +224,15 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         
         # print(np.sum(true_dist == 0), 'check')
 
-        plt.figure()
-        plt.plot(Z_INTEGRAL_AX, true_dist, label='true')
-        plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_incomplete, label='incomp sum')
-        # plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_complete, label='summed')
-        # plt.plot(Z_INTEGRAL_AX[true_dist != 0], sum_of_posteriors_incomplete[true_dist != 0] / true_dist[true_dist != 0], label='c, true')
-        # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX), label='c, summed')
-        plt.legend()
-        plt.show()
-        sys.exit(1)
+        # plt.figure()
+        # plt.plot(Z_INTEGRAL_AX, true_dist, label='true')
+        # plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_incomplete, label='incomp sum')
+        # # plt.plot(Z_INTEGRAL_AX, sum_of_posteriors_complete, label='summed')
+        # # plt.plot(Z_INTEGRAL_AX[true_dist != 0], sum_of_posteriors_incomplete[true_dist != 0] / true_dist[true_dist != 0], label='c, true')
+        # # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX), label='c, summed')
+        # plt.legend()
+        # plt.show()
+        # sys.exit(1)
 
     elif REDSHIFT_SELECTION_FUNCTION == 'empty':
         if VERBOSE:
@@ -221,33 +257,43 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
     from_agn_dict = {}
     # for gw_idx, filename in tqdm(enumerate(gw_fnames)):
     for gw_idx, filename in enumerate(gw_fnames):
-        skymap = read_sky_map(filename, moc=True)
-        # print(f'\nLoaded file {gw_idx+1}/{len(gw_fnames)}: {filename}')
+
+        if USE_SKYMAPS:
+            skymap = read_sky_map(filename, moc=True)
+            sagn_incat, sagn_outofcat, salt = crossmatch(
+                                                        agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
+                                                        sky_map=skymap,                                     # GW data
+                                                        completeness_map=completeness_map,                  # For getting the surveyed sky-area
+                                                        redshift_completeness=redshift_completeness,        # Callable: redshift selection function 
+                                                        agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
+                                                        skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
+                                                        gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
+                                                        z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space  
+                                                        assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                        background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                        merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
+                                                        linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                        correct_time_dilation=CORRECT_TIME_DILATION,
+                                                        **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
         
-        sagn_incat, sagn_outofcat, salt = crossmatch(
-                                                    agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
-                                                    sky_map=skymap,                                     # GW data
-                                                    completeness_map=completeness_map,                  # For getting the surveyed sky-area
-                                                    redshift_completeness=redshift_completeness,        # Callable: redshift selection function 
-                                                    agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_lumdist=obs_agn_rlum,                           # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_redshift=obs_agn_redshift,                      # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
-                                                    skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
-                                                    gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                    z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space  
-                                                    assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
-                                                    background_agn_distribution=AGN_ZPRIOR_FUNCTION,
-                                                    merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
-                                                    linax=LINAX,                                        # Integration can be done in linspace or in geomspace
-                                                    correct_time_dilation=CORRECT_TIME_DILATION,
-                                                    **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+        else:
+            print('Using GW posterior samples!')
+            with h5py.File(filename, 'r') as posterior_samples:
+                sagn_incat, sagn_outofcat, salt = crossmatch_from_samples_p26(posterior_samples=posterior_samples, 
+                                                                              z_integral_ax=Z_INTEGRAL_AX,
+                                                                              agn_posterior_dset=agn_posterior_dset,
+                                                                              agn_ra=agn_ra,
+                                                                              agn_dec=agn_dec)
+
         S_agn_incat[gw_idx] = sagn_incat
         S_agn_outofcat[gw_idx] = sagn_outofcat
         S_alt[gw_idx] = salt
 
-        key = filename[-13:-8]
+        key = get_id_from_fname(filename)
         S_agn_incat_dict[key] = sagn_incat
         S_agn_outofcat_dict[key] = sagn_outofcat
         S_alt_dict[key] = salt
@@ -256,7 +302,6 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
             from_agn_dict[key] = True
         else:
             from_agn_dict[key] = False
-
 
         print(sagn_incat, sagn_outofcat, salt, np.sum((LOG_LLH_X_AX * (sagn_incat + sagn_outofcat - salt) + salt) < 0))
     
@@ -280,15 +325,16 @@ for fagn_idx, fagn_realized in enumerate(REALIZED_FAGNS):
         print('Done.')
     
 
-    # plt.figure()
-    # posterior = log_llh[:,fagn_idx]
-    # posterior -= np.max(posterior)
-    # pdf = np.exp(posterior)
-    # norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
-    # pdf = pdf / norm
-    # plt.plot(LOG_LLH_X_AX, pdf)
-    # plt.show()
-    # sys.exit('Exiting...')
+    plt.figure()
+    posterior = log_llh[:,fagn_idx]
+    posterior -= np.max(posterior)
+    pdf = np.exp(posterior)
+    norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)
+    pdf = pdf / norm
+    plt.plot(LOG_LLH_X_AX, pdf)
+    plt.vlines(TRUE_FAGNS[0], 0, np.max(pdf))
+    plt.show()
+    sys.exit('Exiting...')
 
 # np.save(os.path.join(sys.path[0], FAGN_POSTERIOR_FNAME), log_llh)
 np.save(f'{POST_DIR}/{FAGN_POSTERIOR_FNAME}', log_llh)
