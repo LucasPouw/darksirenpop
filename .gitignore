@@ -1,16 +1,9 @@
 output
 __pycache__
 
-test*
-*.npy
-old*
+agn_distribution
+salvage_later_on
 *.json
-*env
-dump*
-catalogs_moc*
-posterior_samples_moc*
-agn_posteriors_precompute*
-*.fits
-skymaps_moc*
 *.pdf
 *.hdf5
+*.fits

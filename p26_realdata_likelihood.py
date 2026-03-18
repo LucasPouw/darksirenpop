@@ -2,20 +2,23 @@ from p26_control_room import *
 import glob
 from ligo.skymap.io.fits import read_sky_map
 from p26_crossmatch import crossmatch_p26 as crossmatch
+from p26_crossmatch import crossmatch_from_samples_p26
 import sys
 import json
 from scipy.integrate import simpson
+from utils import get_run
 
 
 if not REAL_DATA:
     sys.exit('Change flag REAL_DATA = True')
 
-
-CATALOG_PATH = "/home/lucas/Documents/PhD/Quaia_z15.csv"
-SKYMAP_JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
+if USE_SKYMAPS:
+    JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
+else:
+    JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_PEsamples_nocosmo.json'
 
 fagn_idx = 0
-with open(SKYMAP_JSON_PATH, "r") as f:
+with open(JSON_PATH, "r") as f:
     gw_path_dict = json.load(f)
 gw_keys = list(gw_path_dict.keys())
 
@@ -81,7 +84,7 @@ S_alt_dict = {}
 log_llh = np.zeros((len(LOG_LLH_X_AX), 1))
 for gw_idx, key in enumerate(gw_keys):
     filename = gw_path_dict[key]
-    skymap = read_sky_map(filename, moc=True)
+    
 
     # AGN_population_outofcat = time_dilation_correction(Z_INTEGRAL_AX) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX)
     # norm = romb(AGN_population_outofcat, dx=np.diff(Z_INTEGRAL_AX)[0])
@@ -110,25 +113,47 @@ for gw_idx, key in enumerate(gw_keys):
     # plt.ylabel('Probability density or completeness')
     # plt.show()
     # sys.exit(1)
-    
-    s_agn_incat, s_agn_outofcat, s_alt, = crossmatch(agn_posterior_dset=agn_posterior_dset,            # AGN data (needed when using AGN z-errors)
-                                                    sky_map=skymap,                                     # GW data
-                                                    completeness_map=completeness_map,                  # For getting the surveyed sky-area
-                                                    redshift_completeness=redshift_completeness,        # Callable: redshift selection function
-                                                    agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_lumdist=agn_rlum,                               # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_redshift=agn_redshift,                          # AGN data (needed when neglecting AGN z-errors)
-                                                    agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
-                                                    skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
-                                                    gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
-                                                    z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space
-                                                    assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
-                                                    background_agn_distribution=AGN_ZPRIOR_FUNCTION,
-                                                    merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
-                                                    linax=LINAX,                                        # Integration can be done in linspace or in geomspace
-                                                    correct_time_dilation=CORRECT_TIME_DILATION,
-                                                    **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+
+    if USE_SKYMAPS:
+        skymap = read_sky_map(filename, moc=True)
+        s_agn_incat, s_agn_outofcat, s_alt, = crossmatch(agn_posterior_dset=agn_posterior_dset,            # AGN data (needed when using AGN z-errors)
+                                                        sky_map=skymap,                                     # GW data
+                                                        completeness_map=completeness_map,                  # For getting the surveyed sky-area
+                                                        redshift_completeness=redshift_completeness,        # Callable: redshift selection function
+                                                        agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_lumdist=agn_rlum,                               # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift=agn_redshift,                          # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
+                                                        skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
+                                                        gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
+                                                        z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space
+                                                        assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                        background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                        merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
+                                                        linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                        correct_time_dilation=CORRECT_TIME_DILATION,
+                                                        **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+    else:
+        with h5py.File(filename, 'r') as posterior_samples:
+            s_agn_incat, s_agn_outofcat, s_alt = crossmatch_from_samples_p26(posterior_samples=posterior_samples, 
+                                                                            z_integral_ax=Z_INTEGRAL_AX,
+                                                                            agn_posterior_dset=agn_posterior_dset,
+                                                                            agn_ra=agn_ra,
+                                                                            agn_dec=agn_dec,
+                                                                            completeness_map=completeness_map,
+                                                                            redshift_completeness=redshift_completeness,
+                                                                            gw_zcut=ZMAX,
+                                                                            merger_rate_func=MERGER_RATE_EVOLUTION,
+                                                                            correct_time_dilation=CORRECT_TIME_DILATION,
+                                                                            background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                                            linax=LINAX,
+                                                                            source_frame_mass_prior=SOURCE_FRAME_MASS_PRIOR,
+                                                                            run=get_run(key),
+                                                                            minpix=30,
+                                                                            skymap_cl=SKYMAP_CL,
+                                                                            minsamps=100,
+                                                                            **MERGER_RATE_KWARGS)
     S_agn_incat_dict[key] = s_agn_incat
     S_agn_outofcat_dict[key] = s_agn_outofcat
     S_alt_dict[key] = s_alt

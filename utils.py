@@ -72,6 +72,21 @@ def make_nice_plots():
     mpl.rcParams['ytick.minor.width'] = 1
 
 
+def get_run(key):
+    date = key.split('_')[0][2:]
+    y, m, d = int(date[:2]), int(date[2:4]), int(date[4:])
+    
+    if y < 16:
+        run = 'O1'
+    elif y < 18:
+        run = 'O2'
+    elif y < 22:
+        run = 'O3'
+    else:
+        run = 'O4'
+    return run
+
+
 # def ckd_tree_kde_evaluation(data, evaluation_points):
 #     assert len(data) >= 1e4, 'Too few data points to justify cKDTree. Use gaussian_kde instead.'
 #     bandwidth = len(data)**(-1/5) * np.std(data)  # Scott's method (analog?)

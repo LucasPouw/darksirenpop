@@ -19,10 +19,10 @@ V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf.npy'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 NCPU = os.cpu_count()
-N_POSTERIOR_SAMPLES = int(1e5)
+N_POSTERIOR_SAMPLES = int(5e3)
 ZMIN = 1e-6
-ZMAX = 1.5  # p_rate(z > ZMAX) = 0
-BATCH = int(100)
+ZMAX = 3  # p_rate(z > ZMAX) = 0
+BATCH = int(2e4)
 ##############################################
 
 
