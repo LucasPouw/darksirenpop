@@ -39,11 +39,11 @@ def merger_rate(z, func, **kwargs):
     return func(z, **kwargs)
 
 
-def uniform_comoving_prior(z):
+def uniform_comoving_prior(z, cosmo=COSMO):
     '''Proportional to uniform in comoving volume prior.'''
     z = np.atleast_1d(z)
-    chi = COSMO.comoving_distance(z).value         # Mpc
-    H_z = COSMO.H(z).value                         # km/s/Mpc
+    chi = cosmo.comoving_distance(z).value         # Mpc
+    H_z = cosmo.H(z).value                         # km/s/Mpc
     dchi_dz = SPEED_OF_LIGHT_KMS / H_z             # Mpc
     p = (chi**2 * dchi_dz)
     return p
@@ -57,15 +57,15 @@ def ddl_dz(dl, z, H_z):
     return dl / (1 + z) + (1 + z) * SPEED_OF_LIGHT_KMS / H_z
 
 
-def uniform_source_frame_dl(dl):
+def uniform_source_frame_dl(dl, cosmo=COSMO):
     """
     Prior proportional to uniform merger rate in comoving volume
     and source-frame time, expressed as a function of luminosity distance.
     """
     dl = np.atleast_1d(dl)
-    z = fast_z_at_value(COSMO.luminosity_distance, dl * u.Mpc)
-    chi = COSMO.comoving_distance(z).value
-    H_z = COSMO.H(z).value
+    z = fast_z_at_value(cosmo.luminosity_distance, dl * u.Mpc)
+    chi = cosmo.comoving_distance(z).value
+    H_z = cosmo.H(z).value
     dchi_dz = SPEED_OF_LIGHT_KMS / H_z
     p = (chi**2 * dchi_dz) / ((1+z) * ddl_dz(dl, z, H_z))
     return p
@@ -80,29 +80,29 @@ def fast_z_at_value(function, values, num=100):
     return zvals.value
 
 
-def redshift_pdf_given_lumdist_pdf(z, lumdist_pdf, **kwargs):
+def redshift_pdf_given_lumdist_pdf(z, lumdist_pdf, cosmo=COSMO, **kwargs):
     '''lumdist_pdf is assumed to be normalized'''
-    dl = COSMO.luminosity_distance(z).value
-    H_z = COSMO.H(z).value  # H(z) in km/s/Mpc
+    dl = cosmo.luminosity_distance(z).value
+    H_z = cosmo.H(z).value  # H(z) in km/s/Mpc
     chi_z = dl / (1 + z)
     dDL_dz = chi_z + (1 + z) * (SPEED_OF_LIGHT_KMS / H_z)
     return lumdist_pdf(dl, **kwargs) * dDL_dz
 
 
-def comdist_pdf_given_redshift_pdf(dc, redshift_pdf, **kwargs):
+def comdist_pdf_given_redshift_pdf(dc, redshift_pdf, cosmo=COSMO, **kwargs):
     """redshift_pdf is assumed to be normalized"""
-    z = fast_z_at_value(COSMO.comoving_distance, dc * u.Mpc)
-    H_z = COSMO.H(z).value  # H(z) in km/s/Mpc
+    z = fast_z_at_value(cosmo.comoving_distance, dc * u.Mpc)
+    H_z = cosmo.H(z).value  # H(z) in km/s/Mpc
     dz_dDc = H_z / SPEED_OF_LIGHT_KMS
     return redshift_pdf(z, **kwargs) * dz_dDc
 
 
-def det2source_jacobian(z):
+def det2source_jacobian(z, cosmo=COSMO):
     """
     (1+z)^2 * ddL/dz
     """
-    H_z = COSMO.H(z).value  # H(z) in km/s/Mpc
-    dl = COSMO.luminosity_distance(z).value
+    H_z = cosmo.H(z).value  # H(z) in km/s/Mpc
+    dl = cosmo.luminosity_distance(z).value
     return np.power(1 + z, 2) * ddl_dz(dl, z, H_z)
 
 

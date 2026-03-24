@@ -8,32 +8,34 @@ from astropy.coordinates import SkyCoord
 import warnings
 warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
 import h5py
-from default_globals import *
 import astropy.units as u
 import os
 import matplotlib.pyplot as plt
 from scipy import stats
 import healpy as hp
+from default_globals import *
 from redshift_utils import *
+from utils import *
 import pandas as pd
 from scipy.interpolate import interp1d
 import time
 import glob
 from priors import BBH_powerlaw_gaussian
+from scipy.integrate import romb
 
 
 ################################################### GLOBALS ###################################################
 
-VERBOSE = False
+VERBOSE = True
 
-THREADING = True  # Parallellized over data realizations
+THREADING = False  # Parallellized over data realizations
 N_WORKERS = 16
 
 REAL_DATA = False  # Real or mock flag
 USE_SKYMAPS = True  # Instead of posterior samples
 SOURCE_FRAME_MASS_PRIOR = None  # BBH_powerlaw_gaussian()
 
-N_REALIZATIONS = 200  # Number of realizations
+N_REALIZATIONS = 1  # Number of realizations
 BATCH = 150  # Number of GWs per realization
 TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 
@@ -50,10 +52,10 @@ SKYMAP_CL = 0.999
 ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
 ZMAX = 1.5  # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0. Needs to correspond to the input data, it is not enforced automatically!
 AGN_ZMAX = 10  # Maximum true redshift for AGN
-AGN_ZCUT = 0.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
+AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
 
 QLF = 'kulkarni'  # QLF \in [kulkarni, shenA, shenB]
-AGN_ZPRIOR = f'46.5_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
+AGN_ZPRIOR = 'uniform_comoving_volume'  #f'46.5_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
 
 LUM_THRESH = 'zero_upto_cut'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
 
@@ -310,7 +312,7 @@ def compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, n_norm=10
 
     # Build per-AGN normalization axes
     t = np.linspace(0, 1, n_norm)[None, :]
-    z_norm_ax = (mu - 10*sigma) + t * (20*sigma)
+    z_norm_ax = np.maximum(mu - 10*sigma, 0) + t * (20*sigma)
 
     likelihood = lambda z: stats.truncnorm.pdf(
         z,
@@ -323,10 +325,6 @@ def compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, n_norm=10
     z_norms = np.trapezoid(posteriors_unnorm(z_norm_ax), z_norm_ax, axis=1)
     posteriors = posteriors_unnorm(Z_INTEGRAL_AX) / z_norms[:, None]
     return posteriors
-
-
-# def compute_agn_posteriors():
-#     return
 
 
 def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err, n_norm=100):
@@ -384,8 +382,144 @@ def get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label, repl
 
         sum_of_posteriors = np.sum(agn_posterior_dset, axis=0)
         return agn_posterior_dset, sum_of_posteriors
+    
+
+ALL_TRUE_SOURCES = ALL_TRUE_SOURCES[ALL_TRUE_SOURCES[:, 0].argsort()]
+TRUE_SOURCE_IDENTIFIERS = ALL_TRUE_SOURCES[:,0]
 
 
-if __name__ == '__main__':
+if USE_SKYMAPS:
+    all_gw_fnames = np.array(glob.glob(SKYMAP_DIR + 'skymap_*'))
+    FILE_TYPE = 'skymap'
+else:
+    all_gw_fnames = np.array(glob.glob(SAMPLES_DIR + 'gw_*'))
+    FILE_TYPE = 'samples'
 
-    os.system('./p26_mockdata_likelihood.py')
+
+def get_id_from_fname(fname):
+    file_type = fname.split('/')[-1].split('_')[-4]
+    if file_type == 'gw':
+        return fname[-8:-3]
+    elif file_type == 'skymap':
+        return fname[-13:-8]
+    else:
+        sys.exit(f'Extracted the following file type from file name and did not recognize: {file_type}')
+    return 
+
+
+def get_fnames(ids, file_type):
+    '''file_type either skymap or samples'''
+    if file_type == 'samples':
+        label = 'gw'
+        dir = SAMPLES_DIR
+    elif file_type == 'skymap':
+        label = 'skymap'
+        dir = SKYMAP_DIR
+    else:
+        sys.exit(f'Do not recognize file type: {file_type}. Choose between str(skymap) or str(samples).')
+
+    fnames = []
+    for id in ids:
+        s = f'{dir}{label}_0_0_{id:05d}.fits.gz'
+        fnames.append(s)
+    return np.array(fnames)
+
+
+def get_gw_fnames_resampled(fagn_realized):
+    '''
+    Currently assuming ALT GW hosts are always distributed uniform in comoving volume, but rate evolution can be set.
+
+    Warning: Resampling of a finite amount of GW data will cause biases when analyzing many data realizations due to duplicate GWs
+    '''
+    
+    agn_rcom = ALL_TRUE_SOURCES[:,1]
+    agn_z = fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc)
+
+    # Make target GW-from-AGN population, which is normalized on Z_INTEGRAL_AX
+    norm = romb(AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX), dx=np.diff(Z_INTEGRAL_AX)[0])
+    target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
+
+    weights = target_population(agn_z) / uniform_comoving_prior(agn_z)  # Divide out the distribution of the mock data
+    if CORRECT_TIME_DILATION:
+        weights *= 1 / (1 + agn_z)
+    from_agn_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=round(fagn_realized * BATCH))
+
+    need_these = TRUE_SOURCE_IDENTIFIERS[from_agn_population].astype(int)
+    gw_fnames_from_agn = get_fnames(need_these, file_type=FILE_TYPE)
+
+    # GW-from-ALT population
+    if not CORRECT_TIME_DILATION and (MERGER_RATE == 'uniform'):  # Target population is equal to mock data population
+        gw_fnames_from_alt = np.random.choice(all_gw_fnames, size=BATCH - gw_fnames_from_agn.shape[0], replace=False)
+    else:
+        weights = merger_rate(agn_z, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS)
+        if CORRECT_TIME_DILATION:
+            weights *= 1 / (1 + agn_z)
+        from_alt_population = np.random.choice(np.arange(len(agn_z)), p=weights / np.sum(weights), size=BATCH - gw_fnames_from_agn.shape[0])
+        
+        need_these = TRUE_SOURCE_IDENTIFIERS[from_alt_population].astype(int)
+        gw_fnames_from_alt = get_fnames(need_these, file_type=FILE_TYPE)
+    
+    gw_fnames = np.append(gw_fnames_from_agn, gw_fnames_from_alt)
+
+    return gw_fnames, gw_fnames_from_agn
+
+
+def fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom):
+    '''To preserve overall distribution, need to add AGN above COMDIST_MAX, where the GW-hosting AGN are.'''
+    if AGN_ZPRIOR == 'uniform_comoving_volume':
+        n2complete = int(round(len(agn_ra) * ( (AGN_COMDIST_MAX / COMDIST_MAX)**3 - 1)))
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MAX, AGN_COMDIST_MAX, n2complete)
+
+    else:
+        rcom_integrate_ax = np.linspace(COMDIST_MIN, AGN_COMDIST_MAX, 1024*4+1)
+        total = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, AGN_ZPRIOR_FUNCTION), dx=np.diff(rcom_integrate_ax)[0])
+        rcom_integrate_ax = np.linspace(COMDIST_MIN, COMDIST_MAX, 1024*4+1)
+        current = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, AGN_ZPRIOR_FUNCTION), dx=np.diff(rcom_integrate_ax)[0])
+
+        n2complete = int(round(len(agn_ra) * ( total / current - 1)))
+        if n2complete != 0:
+
+            new_theta, new_phi = sample_spherical_angles(n2complete)
+
+            norm = romb(AGN_ZPRIOR_FUNCTION(AGN_ZPRIOR_NORM_AX) * (1 - z_cut(AGN_ZPRIOR_NORM_AX, zcut=ZMAX)), dx=np.diff(AGN_ZPRIOR_NORM_AX)[0])
+            target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) * (1 - z_cut(z, zcut=ZMAX)) / norm
+            cdf = np.cumsum(target_population(AGN_ZPRIOR_NORM_AX))
+            cdf /= cdf[-1]
+            unif = np.random.rand(n2complete)
+            new_z = np.interp(unif, cdf, AGN_ZPRIOR_NORM_AX)
+            new_rcom = COSMO.comoving_distance(new_z).value
+        else:
+            new_phi, new_theta, new_rcom = np.empty(1), np.empty(1), np.empty(1)
+
+    if VERBOSE:
+        print(f'Adding {n2complete} AGN above GW zmax ({ZMAX}) to get a catalog with distribution: {AGN_ZPRIOR}.')
+
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
+
+    return agn_ra, agn_dec, agn_rcom, n2complete
+
+
+def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps):
+    '''As background noise'''
+
+    if AGN_ZPRIOR == 'uniform_comoving_volume':
+        new_rcom, new_theta, new_phi = uniform_shell_sampler(COMDIST_MIN, AGN_COMDIST_MAX, nsamps)
+    
+    else:
+        new_theta, new_phi = sample_spherical_angles(nsamps)
+
+        norm = romb(AGN_ZPRIOR_FUNCTION(AGN_ZPRIOR_NORM_AX), dx=np.diff(AGN_ZPRIOR_NORM_AX)[0])
+        target_population = lambda z: AGN_ZPRIOR_FUNCTION(z) / norm
+        cdf = np.cumsum(target_population(AGN_ZPRIOR_NORM_AX))
+        cdf /= cdf[-1]
+        unif = np.random.rand(nsamps)
+        new_z = np.interp(unif, cdf, AGN_ZPRIOR_NORM_AX)
+        new_rcom = COSMO.comoving_distance(new_z).value
+
+    agn_ra = np.append(agn_ra, new_phi)
+    agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+    agn_rcom = np.append(agn_rcom, new_rcom)
+
+    return agn_ra, agn_dec, agn_rcom

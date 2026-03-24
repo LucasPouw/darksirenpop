@@ -1,5 +1,5 @@
 '''
-Storing GLOBALS that are used in many files.
+Storing GLOBALS that are used in multiple notebooks
 '''
 
 import os, sys

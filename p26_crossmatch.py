@@ -3,7 +3,7 @@ import healpy as hp
 import numpy as np
 from ligo.skymap import moc
 from scipy.integrate import romb
-from default_globals import *
+# from default_globals import *
 from redshift_utils import *
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
