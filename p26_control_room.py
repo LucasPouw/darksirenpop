@@ -50,12 +50,12 @@ SKYMAP_CL = 0.999
 ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
 ZMAX = 1.5  # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0. Needs to correspond to the input data, it is not enforced automatically!
 AGN_ZMAX = 10  # Maximum true redshift for AGN
-AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
+AGN_ZCUT = 0.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
 
 QLF = 'kulkarni'  # QLF \in [kulkarni, shenA, shenB]
 AGN_ZPRIOR = f'46.5_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
 
-LUM_THRESH = 'zero'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
+LUM_THRESH = 'zero_upto_cut'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
 
 MASK_GALACTIC_PLANE = True
 CMAP_PATH = "./completeness_map.fits"  # Healpix map with 1 if the sky pixel is within the survey footprint and 0 everywhere else.
@@ -297,12 +297,44 @@ def make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift):
     return incomplete_catalog_mask, z_selection_function, completeness_map
 
 
-def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err):
+def compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, n_norm=100):
     '''
+    Compute a chunk of AGN posteriors. This computation is vectorized.
     AGN redshift posteriors are modelled as truncnorms on [0, inf) with a uniform-in-comoving-volume redshift prior.
     The posteriors are then evaluated on Z_INTEGRAL_AX, which is what is necessary for the crossmatch.
     '''
-    n_norm = 100
+    z_chunk = all_agn_z[start:end]
+    zerr_chunk = all_agn_z_err[start:end]
+    mu = z_chunk[:, None]
+    sigma = zerr_chunk[:, None]
+
+    # Build per-AGN normalization axes
+    t = np.linspace(0, 1, n_norm)[None, :]
+    z_norm_ax = (mu - 10*sigma) + t * (20*sigma)
+
+    likelihood = lambda z: stats.truncnorm.pdf(
+        z,
+        a=(ZMIN - mu) / sigma,
+        b=(np.inf - mu) / sigma,
+        loc=mu,
+        scale=sigma
+    )
+    posteriors_unnorm = lambda z: likelihood(z) * z_cut(z, zcut=AGN_ZMAX) * AGN_ZPRIOR_FUNCTION(z)
+    z_norms = np.trapezoid(posteriors_unnorm(z_norm_ax), z_norm_ax, axis=1)
+    posteriors = posteriors_unnorm(Z_INTEGRAL_AX) / z_norms[:, None]
+    return posteriors
+
+
+# def compute_agn_posteriors():
+#     return
+
+
+def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err, n_norm=100):
+    '''
+    For real data, we should only have to do this computation once and reuse the stored values.
+    For mock, this is not useful, since we use different AGN catalogues each time.
+    '''
+
     n_agn = len(all_agn_z)
     n_z = len(Z_INTEGRAL_AX)  # Only need to save the posterior evaluated at this axis
     chunk_size = int(1e6 / n_z)
@@ -316,33 +348,16 @@ def compute_and_save_posteriors_hdf5(filename, all_agn_z, all_agn_z_err):
 
         for start in iterchunks:
             end = min(start + chunk_size, n_agn)
-            z_chunk = all_agn_z[start:end]
-            zerr_chunk = all_agn_z_err[start:end]
-            mu = z_chunk[:, None]
-            sigma = zerr_chunk[:, None]
-
-            # Build per-AGN normalization axes
-            t = np.linspace(0, 1, n_norm)[None, :]
-            z_norm_ax = (mu - 10*sigma) + t * (20*sigma)
-
-            likelihood = lambda z: stats.truncnorm.pdf(
-                z,
-                a=(ZMIN - mu) / sigma,
-                b=(np.inf - mu) / sigma,
-                loc=mu,
-                scale=sigma
-            )
-            posteriors_unnorm = lambda z: likelihood(z) * z_cut(z, zcut=AGN_ZMAX) * AGN_ZPRIOR_FUNCTION(z)
-            z_norms = np.trapezoid(posteriors_unnorm(z_norm_ax), z_norm_ax, axis=1)
-            posteriors = posteriors_unnorm(Z_INTEGRAL_AX) / z_norms[:, None]
-
+            posteriors = compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, n_norm)
             dset[start:end, :] = posteriors
+
     if VERBOSE:
         print(f"All AGN posteriors written to {filename}")
+    
     return
 
 
-def get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label, replace_old_file=True):
+def get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label, replace_old_file=True, n_norm=100):
     '''
     To save computation time, the AGN posteriors are calculated and evaluated on the z-integral axis once and kept in memory.
     '''
@@ -353,15 +368,24 @@ def get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label, repl
     else:
         posterior_path = f'./precompute_posteriors/agn_posteriors_precompute_gwZmax_{ZMAX}_prior_{AGN_ZPRIOR}_{fagn_idx}_{label}.hdf5'
 
-        if not os.path.exists(posterior_path):
-            compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
-        elif os.path.exists(posterior_path) & replace_old_file:
-            os.remove(posterior_path)
-            compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
+        if REAL_DATA:  # The real AGN catalogue doesn't change, so we can compute it once and store it (although you can still choose to recompute using the replace_old_file flag)
+            if not os.path.exists(posterior_path):
+                compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
+            elif os.path.exists(posterior_path) & replace_old_file:
+                os.remove(posterior_path)
+                compute_and_save_posteriors_hdf5(posterior_path, obs_agn_redshift, agn_redshift_err)
 
-        # Keep ~few GB in memory, this is typically faster than reading random slices
-        with h5py.File(posterior_path, "r") as f:
-            agn_posterior_dset = f["agn_redshift_posteriors"][()]
-        sum_of_posteriors = np.sum(agn_posterior_dset, axis=0)  # Sum of posteriors is required to normalize the in-catalog population prior
+            # Keep ~few GB in memory, this is typically faster than reading random slices
+            with h5py.File(posterior_path, "r") as f:
+                agn_posterior_dset = f["agn_redshift_posteriors"][()]
+        
+        else:  # Just compute and immediately keep in memory.
+            agn_posterior_dset = compute_agn_posteriors_chunk(start=0, end=len(obs_agn_redshift), all_agn_z=obs_agn_redshift, all_agn_z_err=agn_redshift_err, n_norm=n_norm)
 
+        sum_of_posteriors = np.sum(agn_posterior_dset, axis=0)
         return agn_posterior_dset, sum_of_posteriors
+
+
+if __name__ == '__main__':
+
+    os.system('./p26_mockdata_likelihood.py')

@@ -1,5 +1,5 @@
 '''
-Storing GLOBALS that are accessed from multiple files.
+Storing GLOBALS that are used in many files.
 '''
 
 import os, sys
