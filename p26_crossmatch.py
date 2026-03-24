@@ -13,6 +13,9 @@ import time
 # import sys
 
 
+TESTING = False
+
+
 def allsky_marginal_lumdist_distribution(dl_array, dP, norm, mu, sigma):
     dl_array = np.atleast_1d(dl_array)             # shape (M,)
 
@@ -54,10 +57,10 @@ def crossmatch_p26(
                     **merger_rate_kwargs):
 
     # agn_redshift_err is only needed as argument for this assertion, could remove it. -- 16-03-2026: z_integral_ax is now made automatically to enforce this, so it should never trigger. Can be removed.
-    if not assume_perfect_redshift:
-        maxdiff = np.max(np.diff(z_integral_ax))
-        thresh = np.min(agn_redshift_err) #/ 10
-        assert maxdiff < thresh, f'LOS zprior resolution is too coarse to capture AGN distribution fully: Got {maxdiff} need {thresh}'
+    # if not assume_perfect_redshift:
+    #     maxdiff = np.max(np.diff(z_integral_ax))
+    #     thresh = np.min(agn_redshift_err) #/ 10
+    #     assert maxdiff < thresh, f'LOS zprior resolution is too coarse to capture AGN distribution fully: Got {maxdiff} need {thresh}'
 
     if linax:
         dz = np.diff(z_integral_ax)[0]
@@ -124,6 +127,12 @@ def crossmatch_p26(
                                                                                     norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl], 
                                                                                     mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl], 
                                                                                     sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl])
+
+    # print(np.sum(dP[surveyed & skyprob_nonzero & pixprob_within_cl]), 'amount of prob in surveyed part')
+    # plt.figure()
+    # plt.plot(z_integral_ax, gw_redshift_posterior_marginalized(z_integral_ax))
+    # plt.plot(z_integral_ax, gw_redshift_posterior_marginalized_cw(z_integral_ax))
+    # plt.show()
     
     ####################### Population priors and integrals #######################
 
@@ -139,12 +148,12 @@ def crossmatch_p26(
         time_dilation = np.ones_like(z_integral_ax)
     p_rate_of_z_alt = time_dilation * zrate * zcut  # Only the alternative hypothesis evolves with SFR!
     p_rate_of_z_agn = time_dilation * zcut
-    normed_agn_background_dist = background_agn_distribution(z_integral_ax) / romb(background_agn_distribution(z_integral_ax) * jacobian, dx=dz)  # 1/4pi cancels with sky position PEprior
+    
+    normed_agn_background_dist = background_agn_distribution(z_integral_ax) / romb(background_agn_distribution(z_integral_ax) * jacobian, dx=dz)  # 1/4pi cancels with sky position PEprior -- 24-03-2026: Can be put outside loop. Also, I don't think this normalization is necessary, maybe remove later.
 
-
-    # gw_redshift_posterior_marginalized = lambda z: PEprior.copy()
-    # gw_redshift_posterior_marginalized_cw = lambda z: PEprior.copy() * np.sum(dA[surveyed]) / np.sum(dA)
-
+    if TESTING:
+        gw_redshift_posterior_marginalized = lambda z: PEprior.copy()
+        gw_redshift_posterior_marginalized_cw = lambda z: PEprior.copy() * np.sum(dA[surveyed]) / np.sum(dA)
 
     gw_redshift_posterior_marginalized_evaluated = gw_redshift_posterior_marginalized(z_integral_ax)
 
@@ -158,15 +167,20 @@ def crossmatch_p26(
 
     ### AGN-origin population part ###
 
-    average_redshift_completeness = romb(redshift_completeness(z_integral_ax) * normed_agn_background_dist * jacobian, dx=dz)
+    average_redshift_completeness = romb(redshift_completeness(z_integral_ax) * normed_agn_background_dist * jacobian, dx=dz)  # -- 24-03-2026: Can be put outside loop.
     sky_coverage = np.sum(dA[surveyed]) / np.sum(dA)
     average_completeness = average_redshift_completeness * sky_coverage
 
-    total_n_agn = len(agn_ra)
+    ### -- 24-03-2026: Can be put outside loop. ###
+    if assume_perfect_redshift:
+        nagn_norm = np.sum(agn_redshift < gw_zcut)
+    else:
+        sum_of_all_agn_posteriors = np.sum(agn_posterior_dset, axis=0)
+        nagn_norm = romb(sum_of_all_agn_posteriors, dx=dz)
 
     # Get zprior normalizations, dealing with delta-function AGN posteriors (then assume_perfect_redshift == True) and empty catalogues (then total_n_agn == 0)
     if assume_perfect_redshift:
-        if total_n_agn == 0:
+        if nagn_norm == 0:
             agn_population_prior_normalization = romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
             
         else:
@@ -175,18 +189,27 @@ def crossmatch_p26(
                 p_rate_of_z_agn_func = lambda z: time_dilation_correction(z) * z_cut(z, zcut=gw_zcut)
             else: 
                 p_rate_of_z_agn_func = lambda z: np.ones_like(z) * z_cut(z, zcut=gw_zcut)
-        
-            agn_population_prior_normalization = average_redshift_completeness / total_n_agn * np.sum(p_rate_of_z_agn_func(agn_redshift)) + romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+            
+            agn_population_prior_normalization = average_redshift_completeness * np.sum(p_rate_of_z_agn_func(agn_redshift)) / nagn_norm + romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
     else:
-        if total_n_agn == 0:
+        if nagn_norm == 0:
             agn_population_prior_normalization = romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
         else:
-            agn_population_prior = average_redshift_completeness * (np.sum(agn_posterior_dset, axis=0) / total_n_agn) + (1 - fc_of_z) * normed_agn_background_dist
+            # p_rate_of_z_agn imposes a redshift cut in the GW population, up to which the pop. is normalized. Therefore agn_population_prior only has to be evaluated at redshifts up to this cut.
+            agn_population_prior = average_redshift_completeness * sum_of_all_agn_posteriors / nagn_norm + (1 - fc_of_z) * normed_agn_background_dist 
             agn_population_prior_rate_weighted = agn_population_prior * p_rate_of_z_agn
             agn_population_prior_normalization = romb(agn_population_prior_rate_weighted * jacobian, dx=dz)
-    
+    ##################################################
+
     # Out-of-catalogue part
     S_agn_outofcat = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax)) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
+
+    # a = romb(y=gw_redshift_posterior_marginalized_evaluated / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
+    # b = romb(fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
+    # print('should be a:', romb(y=p_rate_of_z_agn * normed_agn_background_dist, dx=dz) / agn_population_prior_normalization)
+    # print('should be b:', romb(y=fc_of_z * sky_coverage * p_rate_of_z_agn * normed_agn_background_dist, dx=dz) / agn_population_prior_normalization)
+    # print(S_agn_outofcat, a - b, 'different?')
+    # print(S_agn_outofcat / S_alt)
 
     # In-catalogue part
     if nagn_within_cl == 0:
@@ -220,11 +243,15 @@ def crossmatch_p26(
         #     if np.sum(selec) == 0:  # The contribution to S_agn is ~0 in this pixel, so skip
         #         continue
             selected_agn_redshifts = agn_redshift_posteriors_in_pix  #[selec]
+
+            if TESTING:
+                gw_redshift_posterior_in_pix = PEprior_func
+                dP_dA[gw_idx] = 1 / (4 * np.pi)
             
             # p(s|z) * p_gw(z) * p_gw(Omega) / pi_PE(z), evaluated at AGN position because of delta-function AGN posteriors, sum contributions of all AGN in this pixel
             S_agn_incat += dP_dA[gw_idx] * np.sum( p_rate_of_z_agn_func(selected_agn_redshifts) * gw_redshift_posterior_in_pix(selected_agn_redshifts) / PEprior_func(selected_agn_redshifts) )
 
-        S_agn_incat *= 4 * np.pi * average_completeness / total_n_agn / agn_population_prior_normalization
+        S_agn_incat *= 4 * np.pi * average_completeness / nagn_norm / agn_population_prior_normalization
 
 
     else:  # AGN have z-errors, need to use their full posteriors
@@ -237,30 +264,35 @@ def crossmatch_p26(
 
         # Building p_pop(z|A,G) * p_GW(z|d)
         integrand = np.zeros_like(z_integral_ax)  # AGN posteriors weighted by GW sky posterior, to be integrated over redshift
-        # LOSzprior = np.zeros_like(z_integral_ax)  # Needed for normalization of population prior
+        LOSzprior = np.zeros_like(z_integral_ax)  # Needed for normalization of population prior
         for i, gw_idx in enumerate(unique_gw_pixidx_containing_agn):
             gw_redshift_posterior_in_pix = gw_redshift_posterior_in_allpix[:, i].flatten()
 
-
-            # gw_redshift_posterior_in_pix = PEprior.copy()
-            # dP_dA[gw_idx] = 1 / (4 * np.pi)
-
+            if TESTING:
+                gw_redshift_posterior_in_pix = PEprior.copy()
+                dP_dA[gw_idx] = 1 / (4 * np.pi)
 
             agn_posterior_idx_in_pix = agn_posterior_idx[gw_pixidx_at_agn_locs_within_cl == gw_idx]
             agn_redshift_posteriors_in_pix = agn_redshift_posteriors_in_cl[agn_posterior_idx_in_pix, :]
             
             # The population prior consists of AGN posteriors, modulated by redshift evolving merger rates (done later)
             sum_of_agn_posteriors = np.sum(agn_redshift_posteriors_in_pix, axis=0)
-            # LOSzprior += sum_of_agn_posteriors #* dP_dA[gw_idx]
+            LOSzprior += sum_of_agn_posteriors #* dP_dA[gw_idx]
             integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * sum_of_agn_posteriors
         
         # Normalize
-        integrand /= total_n_agn
-        # LOSzprior /= total_n_agn
+        integrand /= nagn_norm
+        LOSzprior /= nagn_norm
 
         # Calculate evidence
         S_agn_incat = romb(integrand * p_rate_of_z_agn / PEprior * jacobian, dx=dz) * 4 * np.pi * average_completeness / agn_population_prior_normalization  # 1/4pi from PEprior does not cancel, since the AGN sky posterior is delta(Omega_i - Omega)
-    
+
+        # plt.figure()
+        # plt.plot(z_integral_ax, normed_agn_background_dist * p_rate_of_z_agn / romb(normed_agn_background_dist * p_rate_of_z_agn, dx=dz), label='outcat prior')
+        # plt.plot(z_integral_ax, np.sum(agn_posterior_dset, axis=0) * p_rate_of_z_agn / romb(np.sum(agn_posterior_dset, axis=0) * p_rate_of_z_agn, dx=dz), label='incat prior')
+        # plt.plot(z_integral_ax, agn_population_prior_rate_weighted / agn_population_prior_normalization, label='combined')
+        # plt.legend()
+        # plt.show()
     return S_agn_incat, S_agn_outofcat, S_alt
 
 

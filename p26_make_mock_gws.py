@@ -13,8 +13,8 @@ from scipy.interpolate import interp1d
 
 
 ############## INPUT PARAMETERS ##############
-MAKE_SKYMAPS = False 
-ID = 'z'
+MAKE_SKYMAPS = True 
+ID = 'zmax3zcut1'
 V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf.npy'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
@@ -22,7 +22,8 @@ NCPU = os.cpu_count()
 N_POSTERIOR_SAMPLES = int(5e3)
 ZMIN = 1e-6
 ZMAX = 3  # p_rate(z > ZMAX) = 0
-BATCH = int(2e4)
+ZCUT = 1
+BATCH = int(2e5)
 ##############################################
 
 
@@ -64,19 +65,36 @@ def v90_to_sigma(v90):
 def make_real_gw_positions():
     true_rcom, true_theta, true_phi = uniform_shell_sampler(COMDIST_MIN, COMDIST_MAX, BATCH)
     true_x, true_y, true_z = spherical2cartesian(true_rcom, true_theta, true_phi)
-    return true_x, true_y, true_z
+    return true_x, true_y, true_z, true_rcom, true_theta, true_phi
 
 
-def make_observed_gw_positions(true_x, true_y, true_z):
+def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi):
     v90 = sample_v90()
     sig = v90_to_sigma(v90)
     obs_x, obs_y, obs_z = np.random.normal(loc=true_x, scale=sig, size=BATCH), np.random.normal(loc=true_y, scale=sig, size=BATCH), np.random.normal(loc=true_z, scale=sig, size=BATCH)
-    return obs_x, obs_y, obs_z, sig
+    
+    # Make hard redshift cut for observation
+    obs_rcom, _, _ = cartesian2spherical(obs_x, obs_y, obs_z)
+    obs_redshift = fast_z_at_value(COSMO.comoving_distance, obs_rcom * u.Mpc)
+    sel = obs_redshift < ZCUT
+    print(f'Observed {np.sum(sel)} GWs!')
+
+    # import matplotlib.pyplot as plt
+    # true_redshift = fast_z_at_value(COSMO.comoving_distance, true_rcom * u.Mpc)
+    # print(np.min(np.log10(v90)))
+    # plt.figure()
+    # plt.hist(np.log10(v90))
+    # # print(np.sum(obs_redshift < ZCUT))
+    # # plt.hist(true_redshift, bins=30, histtype='step', linewidth=2)
+    # # plt.hist(true_redshift[obs_redshift < ZCUT], bins=30, histtype='step', linewidth=2)
+    # plt.show()
+    # sys.exit(1)
+    return obs_x[sel], obs_y[sel], obs_z[sel], sig[sel]
 
 
 def make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig):
     '''TODO: apply a prior, right?'''
-    for i in range(BATCH):
+    for i in range(len(obs_x)):
         posterior_samples_x = np.random.normal(loc=obs_x[i], scale=sig[i], size=N_POSTERIOR_SAMPLES)
         posterior_samples_y = np.random.normal(loc=obs_y[i], scale=sig[i], size=N_POSTERIOR_SAMPLES)
         posterior_samples_z = np.random.normal(loc=obs_z[i], scale=sig[i], size=N_POSTERIOR_SAMPLES)
@@ -123,8 +141,8 @@ def make_skymaps(trial_idx, fagn_idx):
 
 def main(trial_idx, fagn_idx):
     check_directory(POST_SAMPS_DIR)
-    true_x, true_y, true_z = make_real_gw_positions()
-    obs_x, obs_y, obs_z, sig = make_observed_gw_positions(true_x, true_y, true_z)
+    true_x, true_y, true_z, true_rcom, true_theta, true_phi = make_real_gw_positions()
+    obs_x, obs_y, obs_z, sig = make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi)
     make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig)
     save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z)
 

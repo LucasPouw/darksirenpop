@@ -162,7 +162,7 @@ def process_one_fagn(fagn_idx, fagn_realized):
     gw_identifiers = sorted(np.array([get_id_from_fname(f) for f in gw_fnames_from_agn]).astype(int))
     true_sources = ALL_TRUE_SOURCES[np.searchsorted(TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
-
+    
     ### Complete catalog to preserve uniform in comoving volume distribution ###
     agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom)
     ############################################################################
@@ -197,7 +197,7 @@ def process_one_fagn(fagn_idx, fagn_realized):
     agn_posterior_dset, sum_of_posteriors_incomplete = get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label='INCOMPLETE')
     
     ### Characterize the redshift-completeness ###
-    if ASSUME_PERFECT_REDSHIFT or LUM_THRESH == 'zero' or LUM_THRESH == 'inf':
+    if ASSUME_PERFECT_REDSHIFT or LUM_THRESH == 'inf':
         redshift_completeness = z_selection_function
 
     else:  # Measure the selection function from the data realization
@@ -210,9 +210,20 @@ def process_one_fagn(fagn_idx, fagn_realized):
         redshift_agn_selection_function[redshift_agn_selection_function > 1] = 1
         redshift_completeness = interp1d(Z_INTEGRAL_AX, redshift_agn_selection_function, bounds_error=False, fill_value=0)
 
+    # print(np.sum(fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc) < 0.4))
+    # print(np.sum(fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc) > 0.4))
+    # zzz = fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc)
+    # print(np.min(agn_rcom_complete), np.max(agn_rcom_complete))
+    # print(np.min(zzz), np.max(zzz))
+
+    # print(np.sum(obs_agn_redshift < 0.4))
+    # print(np.sum(obs_agn_redshift > 0.4))
     # plt.figure()
-    # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX))
-    # plt.plot(Z_INTEGRAL_AX, z_selection_function(Z_INTEGRAL_AX))
+    # plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX), label='Estimated')
+    # plt.plot(Z_INTEGRAL_AX, z_selection_function(Z_INTEGRAL_AX), label='Input')
+    # plt.xlabel('Redshift')
+    # plt.ylabel('Completeness')
+    # plt.legend()
     # plt.show()
     # sys.exit(1)
 

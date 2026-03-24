@@ -48,14 +48,14 @@ CATALOG_PATH = "/home/lucas/Documents/PhD/agn_data/Quaia_z15.csv"
 SKYMAP_CL = 0.999
 
 ZMIN = 1e-4  # Some buffer for astropy's lowest possible value
-ZMAX = 1.5   # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0. Needs to correspond to the input data, it is not enforced automatically!
+ZMAX = 1.5  # Maximum true redshift for GWs, such that p_rate(z > ZMAX) = 0. Needs to correspond to the input data, it is not enforced automatically!
 AGN_ZMAX = 10  # Maximum true redshift for AGN
-AGN_ZCUT = 1  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
+AGN_ZCUT = 1.5  # Redshift cut of the AGN catalog, defines the redshift above which f_c(z)=0
 
 QLF = 'kulkarni'  # QLF \in [kulkarni, shenA, shenB]
 AGN_ZPRIOR = f'46.5_{QLF}'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5_<QLF>', '45.0_<QLF>', '45.5_<QLF>', '46.0_<QLF>', '46.5_<QLF>'
 
-LUM_THRESH = 'zero_upto_cut'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
+LUM_THRESH = 'zero'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
 
 MASK_GALACTIC_PLANE = True
 CMAP_PATH = "./completeness_map.fits"  # Healpix map with 1 if the sky pixel is within the survey footprint and 0 everywhere else.
@@ -230,7 +230,7 @@ def make_redshift_selection(obs_agn_redshift):
     AGN catalogs can be redshift-incomplete. This function returns a masking array that does the selection based on the data realization of AGN redshifts.
     '''
     if LUM_THRESH == 'zero':  # No redshift selection
-        z_selection_function = lambda z: 1
+        z_selection_function = lambda z: np.ones_like(z)
         redshift_incomplete_mask = np.ones_like(obs_agn_redshift, dtype=bool)
 
     elif LUM_THRESH == 'zero_upto_cut':
@@ -238,7 +238,7 @@ def make_redshift_selection(obs_agn_redshift):
         redshift_incomplete_mask = obs_agn_redshift < AGN_ZCUT
     
     elif LUM_THRESH == 'inf':
-        z_selection_function = lambda z: 0
+        z_selection_function = lambda z: np.zeros_like(z)
         redshift_incomplete_mask = np.zeros_like(obs_agn_redshift, dtype=bool)
 
     else:
