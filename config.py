@@ -4,6 +4,7 @@ import glob
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+from typing import Union
 
 from redshift_utils import merger_rate_madau_dickinson, merger_rate_uniform, z_cut, uniform_comoving_prior
 from astropy.cosmology import Planck15
@@ -28,7 +29,7 @@ self.SKYMAP_DIR = f"./skymaps_
 self.SAMPLES_DIR = f"./posterior_samples_
 self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_
 
-FIXME: crossmatch does not get the cfg, which means it uses the cosmology from the default_globals file
+FIXME: crossmatch does not get the cfg object, which means it uses the cosmology from the default_globals file
 '''
 
 
@@ -45,8 +46,9 @@ class Config:
 
     N_REALIZATIONS: int = 1
     BATCH: int = 150
-    TRUE_FAGNS: float = 0.5
+    TRUE_FAGN: float = 0.5
 
+    OUTFILE: str = './runs.json'
     DIRECTORY_ID: str = 'all'
     AGN_DIST_DIR: str = './darksirenpop/agn_distribution'
     CATALOG_PATH: str = "./agn_data/Quaia_z15.csv"
@@ -61,7 +63,7 @@ class Config:
     AGN_ZMAX: float = 10
     AGN_ZCUT: float = 1.5
 
-    QLF: str | None = None  # None or 'kulkarni' -- shenA and shenB not implemented
+    QLF: str = 'kulkarni'  # 'kulkarni' -- shenA and shenB not tested, QLF is not used when AGN_ZPRIOR is not one of ['44.5', '45.0', '45.5', '46.0', '46.5']
     AGN_ZPRIOR: str = 'uniform_comoving_volume'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5', '45.0', '45.5', '46.0', '46.5'
     LUM_THRESH: str = 'zero_upto_cut'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
 
@@ -70,7 +72,7 @@ class Config:
 
     ADD_NAGN_TO_CAT: int = int(3.5e5)
     ASSUME_PERFECT_REDSHIFT: bool = False
-    AGN_ZERROR: str | bool | float = 'quaia'  # 'quaia', 'False', or float
+    AGN_ZERROR: Union[float, bool, str] = 'quaia'  # 'quaia', False or float
 
     CORRECT_TIME_DILATION: bool = True
     MERGER_RATE: str = 'madau'
@@ -91,6 +93,7 @@ class Config:
     # AGN_ZPRIOR_NORM_AX: np.ndarray | None = None
     # REALIZED_FAGNS: np.ndarray | None = None
     # N_TRUE_FAGNS: int | None = None
+    # TRUE_FAGNS: np.ndarray | None = None
 
     # COMDIST_MIN: float | None = None
     # COMDIST_MAX: float | None = None
@@ -121,9 +124,12 @@ class Config:
             return np.linspace(self.ZMIN, self.ZMAX, npoints_min + 1)
         else:
             npoints = int(2**np.ceil(np.log2(at_least_N * (self.ZMAX - self.ZMIN) / smallest_error)))
-            print(f'Requiring at least {npoints} points in redshift integral axis to capture all AGN info '
-                  f'for smallest error: {smallest_error}.')
+            if self.VERBOSE:
+                print(f'Requiring at least {npoints} points in redshift integral axis to capture all AGN info '
+                    f'for smallest error: {smallest_error}.')
             npoints = max(npoints, npoints_min)
+            if self.VERBOSE:
+                print(f'Actual number of points on the axis: {npoints + 1}.\n')
             return np.linspace(self.ZMIN, self.ZMAX, npoints + 1)
 
 
@@ -171,7 +177,7 @@ class Config:
             os.environ["OMP_NUM_THREADS"] = "1"
 
         # -------- TRUE/REALIZED FAGNS --------
-        self.TRUE_FAGNS = np.tile(self.TRUE_FAGNS, self.N_REALIZATIONS)
+        self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
         self.REALIZED_FAGNS = np.random.binomial(self.BATCH, self.TRUE_FAGNS) / self.BATCH
         self.N_TRUE_FAGNS = len(self.TRUE_FAGNS)
 
@@ -204,7 +210,7 @@ class Config:
         # -------- WARNINGS --------
         if self.AGN_ZPRIOR and self.AGN_ZPRIOR[:4] != self.LUM_THRESH:
             print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {self.LUM_THRESH}, '
-                  f'while the AGN redshift posteriors in your catalog may have an inconsistent prior: {self.AGN_ZPRIOR}')
+                  f'but there is also a data-informed completeness available for your chosen AGN redshift prior: {self.AGN_ZPRIOR}\n')
 
         # -------- AGN ERRORS --------
         if self.AGN_ZERROR == 'quaia':
@@ -219,21 +225,22 @@ class Config:
             self.MERGER_RATE_KWARGS = {}
 
         # -------- POSTERIOR FILENAME --------
-        if self.REAL_DATA:
-            self.FAGN_POSTERIOR_FNAME = (
-                f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
-                f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
-                f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}_CL_{self.SKYMAP_CL}'
-                f'_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
-            )
-        else:
-            self.FAGN_POSTERIOR_FNAME = (
-                f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
-                f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
-                f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}'
-                f'_addAGN_{self.ADD_NAGN_TO_CAT}_nreal_{self.N_REALIZATIONS}_batch_{self.BATCH}_CL_{self.SKYMAP_CL}'
-                f'_agnZerr_{self.AGN_ZERROR}_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
-            )
+        self.FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{self.REAL_DATA}'
+        # if self.REAL_DATA:
+        #     self.FAGN_POSTERIOR_FNAME = (
+        #         f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
+        #         f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
+        #         f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}_CL_{self.SKYMAP_CL}'
+        #         f'_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
+        #     )
+        # else:
+        #     self.FAGN_POSTERIOR_FNAME = (
+        #         f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
+        #         f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
+        #         f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}'
+        #         f'_addAGN_{self.ADD_NAGN_TO_CAT}_nreal_{self.N_REALIZATIONS}_batch_{self.BATCH}_CL_{self.SKYMAP_CL}'
+        #         f'_agnZerr_{self.AGN_ZERROR}_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
+        #     )
 
         # -------- AGN REDSHIFT PRIORS & INTEGRAL AXIS --------
         self.AGN_ZPRIOR_FUNCTION = self.get_agn_zprior()

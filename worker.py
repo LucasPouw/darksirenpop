@@ -9,8 +9,9 @@ from process_mock import process_one_fagn
 
 def run_worker(cfg):
     """
-    Run the posterior computation over all realizations of FAGNs.
-    Supports multithreading and optional verbose plotting.
+    Run the posterior computation over all realizations of f_agn.
+    Supports multithreading. If verbose output and not threading, 
+    a plot is made of a single f_agn posterior and the code exits.
     """
     
     log_llh = np.zeros((len(cfg.LOG_LLH_X_AX), cfg.N_TRUE_FAGNS))
@@ -18,8 +19,8 @@ def run_worker(cfg):
     if cfg.THREADING:
         with ProcessPoolExecutor(max_workers=cfg.N_WORKERS) as executor:
             futures = [
-                executor.submit(process_one_fagn, fagn_idx, fagn_true, cfg)
-                for fagn_idx, fagn_true in enumerate(cfg.REALIZED_FAGNS)
+                executor.submit(process_one_fagn, fagn_idx, fagn_realized, cfg)
+                for fagn_idx, fagn_realized in enumerate(cfg.REALIZED_FAGNS)
             ]
             for future in tqdm(as_completed(futures)):
                 fagn_idx, llh = future.result()

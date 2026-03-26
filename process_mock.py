@@ -341,7 +341,7 @@ def add_agn_to_catalog(agn_ra, agn_dec, agn_rcom, nsamps, cfg):
 
     return agn_ra, agn_dec, agn_rcom
 
-
+########################################################################################################################################################
 
 def process_one_fagn(fagn_idx, fagn_realized, cfg):
     print(f'\nRealization {fagn_idx + 1}/{cfg.N_TRUE_FAGNS}: fagn = {fagn_realized}')
