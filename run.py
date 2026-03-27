@@ -160,4 +160,6 @@ if __name__ == "__main__":
     np.save(fname, log_llh)
     metadata2json(fname, time_now, cfg)
     print(f'Done. Posteriors are located at: {fname}\n')
-    print(f'That took {(time.time() - t) / cfg.N_WORKERS} seconds/it.')
+
+    tfinal = time.time() - t
+    print(f'That took {tfinal:.2f} seconds for {tfinal / cfg.N_REALIZATIONS:.2f} seconds/it.\n')

@@ -14,16 +14,17 @@ from scipy.interpolate import interp1d
 
 ############## INPUT PARAMETERS ##############
 MAKE_SKYMAPS = True 
-ID = 'zmax3zcut1'
+ID = 'gws_1e11'
+FIXED_VOL = 1e11  # float or False
 V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf.npy'
 SKYMAP_DIR = f'./skymaps_{ID}'
 POST_SAMPS_DIR = f'./posterior_samples_{ID}'
 NCPU = os.cpu_count()
 N_POSTERIOR_SAMPLES = int(5e3)
 ZMIN = 1e-6
-ZMAX = 3  # p_rate(z > ZMAX) = 0
-ZCUT = 1
-BATCH = int(2e5)
+ZMAX = 1.5  # p_rate(z > ZMAX) = 0
+ZCUT = np.inf
+BATCH = int(100)
 ##############################################
 
 
@@ -69,8 +70,12 @@ def make_real_gw_positions():
 
 
 def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi):
-    v90 = sample_v90()
+    if FIXED_VOL:
+        v90 = np.tile(FIXED_VOL, BATCH)
+    else:
+        v90 = sample_v90()
     sig = v90_to_sigma(v90)
+    
     obs_x, obs_y, obs_z = np.random.normal(loc=true_x, scale=sig, size=BATCH), np.random.normal(loc=true_y, scale=sig, size=BATCH), np.random.normal(loc=true_z, scale=sig, size=BATCH)
     
     # Make hard redshift cut for observation

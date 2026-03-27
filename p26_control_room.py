@@ -35,11 +35,11 @@ REAL_DATA = False  # Real or mock flag
 USE_SKYMAPS = True  # Instead of posterior samples
 SOURCE_FRAME_MASS_PRIOR = None  # BBH_powerlaw_gaussian()
 
-N_REALIZATIONS = 1  # Number of realizations
-BATCH = 150  # Number of GWs per realization
+N_REALIZATIONS = 4  # Number of realizations
+BATCH = 10  # Number of GWs per realization
 TRUE_FAGNS = np.tile(0.5, N_REALIZATIONS)
 
-DIRECTORY_ID = 'all'
+DIRECTORY_ID = 'gws_1e4'
 ALL_TRUE_SOURCES = np.genfromtxt(f'/home/lucas/Documents/PhD/true_r_theta_phi_{DIRECTORY_ID}.txt', delimiter=',')
 SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
 SAMPLES_DIR = f"./posterior_samples_{DIRECTORY_ID}/"

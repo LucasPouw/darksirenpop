@@ -455,7 +455,8 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
                                                         linax=cfg.LINAX,                                        # Integration can be done in linspace or in geomspace
                                                         correct_time_dilation=cfg.CORRECT_TIME_DILATION,
                                                         **cfg.MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
-        
+            if np.isnan(sagn_incat) and np.isnan(sagn_outofcat) and np.isnan(salt):
+                print(filename)
         else:
             if cfg.VERBOSE:
                 print(f'Using GW posterior samples!')
