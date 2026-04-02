@@ -4,8 +4,10 @@ import sys, os
 
 from scipy.special import chebyt
 from scipy.integrate import romb
+from scipy.interpolate import interp1d
 
 import astropy.units as u
+from default_globals import COSMO
 
 from utils import log10addexp10
 
@@ -37,17 +39,6 @@ COEFFICIENTS = {
         [ -0.171, +0.101, -0.116],   # c3,4
     ])
 }
-
-
-# def QLF(M, phi_star, M_star, alpha, beta):
-#     """
-#     M: absolute magnitude
-#     phi_star: amplitude
-#     M_star: break magnitude
-#     alpha: bright-end slope
-#     beta: faint-end slope
-#     """
-#     return phi_star / (10**(0.4 * (alpha + 1) * (M - M_star)) + 10**(0.4 * (beta + 1) * (M - M_star)))
 
 
 def F(i, z):
@@ -254,7 +245,9 @@ def L2M(log10_Lbol):
 def get_n_of_z(qlf, log10_Lbol_thresh):
     '''
     qlf: str, either 'kulkarni', 'shenA' or 'shenB'
-    log10_Lbol_thresh: log10 bolometric luminosity threshold in erg/s
+    log10_Lbol_thresh: log10 bolometric luminosity threshold in erg/s, number density is from every object brighter than this threshold
+
+    output: callable number density as a function of redshift
     '''
     
     if qlf in ['shenA', 'shenB']:
@@ -276,6 +269,25 @@ def get_n_of_z(qlf, log10_Lbol_thresh):
     
     return n_of_z
 
+
+def numdens2pdf(n_of_z: callable, redshift: np.ndarray, cosmo=COSMO) -> np.ndarray:
+    '''
+    Get redshift PDFs by multiplying by dV/(dzdOmega) * 4pi * dz (i.e., multiply number density by dV)
+    
+    Takes callable and returns an array!
+    '''
+    agn_redshift_pdf = 4 * np.pi * n_of_z(redshift) * cosmo.differential_comoving_volume(redshift).value * np.diff(redshift)[0]
+    agn_redshift_pdf /= romb(agn_redshift_pdf, dx=np.diff(redshift)[0])  # Normalize
+    return agn_redshift_pdf
+
+
+def pdf2numdens(pdf: np.ndarray, redshift: np.ndarray, scaling: float = 1.) -> callable:
+    '''
+    Takes array and returns a callable!
+    '''
+    numdens = scaling * pdf / (4 * np.pi * COSMO.differential_comoving_volume(redshift).value)
+    numdens_interp = lambda z: interp1d(x=redshift, y=numdens, bounds_error=False, fill_value=0)(z)
+    return numdens_interp
 
 
 if __name__ == '__main__':
@@ -321,20 +333,9 @@ if __name__ == '__main__':
     plt.figure(figsize=(8,6))
     plt.plot(np.log10(LL.value), log10_QLF_shen(log10_LL_sollum, z=zfid, model='A'), color='purple', linewidth=2)
     plt.plot(np.log10(LL.value), log10_QLF_shen(log10_LL_sollum, z=zfid, model='B'), color='hotpink', linewidth=2)
-    # plt.semilogx()
     plt.xlim(42.5, 50.25)
     plt.ylim(-11.1, -2.4)
-    # plt.xticks([])
     plt.show()
-
-
-    # z_eval = 0.72 # 0.31#
-    # plt.figure()
-    # # plt.plot(np.linspace(-30, 0, 1000), np.log10( QLF(np.linspace(-30, 0, 1000), phi_star=10**(-5.72), M_star=-21.30, alpha=-2.74, beta=-1.07) ), label='In bin')
-    # plt.plot(np.linspace(-30, 0, 1000), np.log10( QLF(np.linspace(-30, 0, 1000), phi_star=10**(-6.57), M_star=-24.21, alpha=-3.55, beta=-1.89) ), label='In bin')
-    # plt.plot(np.linspace(-30, 0, 1000), log10_QLF_kulkarni(np.linspace(-30, 0, 1000), z=z_eval), label='All z')
-    # plt.legend()
-    # plt.show()
 
     z_ax = np.linspace(0, 7, 1000)
     plt.figure(figsize=(8,6))

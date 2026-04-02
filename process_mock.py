@@ -2,7 +2,7 @@ from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap import moc
 
 from redshift_utils import fast_z_at_value, z_cut, uniform_comoving_prior, merger_rate, comdist_pdf_given_redshift_pdf, redshift_pdf_given_lumdist_pdf, time_dilation_correction
-from utils import uniform_shell_sampler, sample_spherical_angles
+from utils import uniform_shell_sampler, sample_spherical_angles, truncnorm_pdf_inplace
 
 from tqdm import tqdm
 import sys, os
@@ -127,69 +127,6 @@ def make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift, cfg
     if cfg.VERBOSE:
         print(f'Observed {np.sum(incomplete_catalog_mask)} AGN from realizations, of which {np.sum(obs_agn_redshift[incomplete_catalog_mask] < cfg.ZMAX)} below GW_ZMAX. Average completeness below GW_ZMAX: {np.sum(obs_agn_redshift[incomplete_catalog_mask] < cfg.ZMAX) / np.sum(obs_agn_redshift < cfg.ZMAX):.5f}')
     return incomplete_catalog_mask, z_selection_function, completeness_map
-
-
-def truncnorm_pdf_inplace(z, mu, sigma, zmin=0.0, out=None):
-    """
-    Memory-efficient computation of normalization constants.
-
-    Parameters
-    ----------
-    mu : (N, 1)
-    sigma : (N, 1)
-    zmin : float
-    zmax : float
-    prior_fn : function(z) -> array
-    n_norm : int
-    out : optional buffer (N, n_norm)
-
-    Returns
-    -------
-    z_norms : (N,)
-    """
-
-    # Ensure shapes
-    mu = np.asarray(mu)
-    sigma = np.asarray(sigma)
-    z = np.asarray(z)
-
-    if z.ndim == 1:
-        N = mu.shape[0]
-        M = z.shape[0]
-
-        if out is None:
-            out = np.empty((N, M), dtype=np.float64)
-
-        out[:] = z
-        out -= mu
-        out /= sigma
-
-    elif z.ndim == 2:
-        if out is None:
-            out = np.empty_like(z)
-
-        out[:] = z
-        out -= mu      # (N, M) - (N, 1)
-        out /= sigma
-
-    else:
-        raise ValueError("z must be 1D or 2D")
-
-    # exp(-0.5 * t^2)
-    np.square(out, out=out)
-    out *= -0.5
-    np.exp(out, out=out)
-
-    # divide by sigma
-    out /= sigma
-
-    # normalization
-    a = (zmin - mu) / sigma
-    Z = 1.0 - stats.norm.cdf(a)
-
-    out /= Z
-
-    return out
 
 
 def compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, cfg, n_norm=100):

@@ -1,10 +1,9 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import matplotlib as mpl
+import numpy as np
 import sys
-# import healpy as hp
-# import os
-# from scipy.spatial import cKDTree
+
+from scipy import stats
 
 
 def log10addexp10(a, b):
@@ -62,6 +61,69 @@ def print_memory_usage(scope=None):
 
 def gaussian(x, mu, sigma):
     return np.exp(-0.5 * ((x - mu) / sigma)**2) / (np.sqrt(2 * np.pi) * sigma)
+
+
+def truncnorm_pdf_inplace(z, mu, sigma, zmin=0.0, out=None):
+    """
+    Memory-efficient computation of normalization constants.
+
+    Parameters
+    ----------
+    mu : (N, 1)
+    sigma : (N, 1)
+    zmin : float
+    zmax : float
+    prior_fn : function(z) -> array
+    n_norm : int
+    out : optional buffer (N, n_norm)
+
+    Returns
+    -------
+    z_norms : (N,)
+    """
+
+    # Ensure shapes
+    mu = np.asarray(mu)
+    sigma = np.asarray(sigma)
+    z = np.asarray(z)
+
+    if z.ndim == 1:
+        N = mu.shape[0]
+        M = z.shape[0]
+
+        if out is None:
+            out = np.empty((N, M), dtype=np.float64)
+
+        out[:] = z
+        out -= mu
+        out /= sigma
+
+    elif z.ndim == 2:
+        if out is None:
+            out = np.empty_like(z)
+
+        out[:] = z
+        out -= mu      # (N, M) - (N, 1)
+        out /= sigma
+
+    else:
+        raise ValueError("z must be 1D or 2D")
+
+    # exp(-0.5 * t^2)
+    np.square(out, out=out)
+    out *= -0.5
+    np.exp(out, out=out)
+
+    # divide by sigma
+    out /= sigma
+
+    # normalization
+    a = (zmin - mu) / sigma
+    Z = 1.0 - stats.norm.cdf(a)
+
+    out /= Z
+
+    return out
 
 
 def sample_spherical_angles(n_samps=1):
@@ -141,64 +203,6 @@ def get_run(key):
     return run
 
 
-# def ckd_tree_kde_evaluation(data, evaluation_points):
-#     assert len(data) >= 1e4, 'Too few data points to justify cKDTree. Use gaussian_kde instead.'
-#     bandwidth = len(data)**(-1/5) * np.std(data)  # Scott's method (analog?)
-#     kdtree = cKDTree(data[:, None])
-#     kde_values = np.zeros_like(evaluation_points)
-#     for i, point in enumerate(evaluation_points):
-#         indices = kdtree.query_ball_point([point], bandwidth)
-#         kde_values[i] = len(indices) / (len(data) * bandwidth)
-#     return kde_values * 0.5
-
-
-# def histogram_pdf(data, points):
-#     assert len(data) >= 1e4, 'Too few data points to justify histogram PDF. Use gaussian_kde instead.'
-#     bandwidth = len(data)**(-1/5) * np.std(data)
-#     xmin = min(np.min(data), np.min(points))
-#     xmax = max(np.max(data), np.max(points))
-#     nbins = int((xmax - xmin) / bandwidth)
-#     edges = np.linspace(xmin, xmax, nbins+1)
-#     binned_data, edges = np.histogram(data, bins=edges, density=True)
-#     idx = np.digitize(points, edges[:-1]) - 1
-#     return binned_data[idx]
-
-
-# def check_equal(a, b):
-#     if len(a) != len(b):
-#         return False
-#     return sorted(a) == sorted(b)
-
-
-# def ra_dec_from_ipix(nside, ipix, nest=True):
-#     """RA and dec from HEALPix index"""
-#     (theta, phi) = hp.pix2ang(nside, ipix, nest=nest)
-#     return (phi, np.pi/2.-theta)
-
-
-# def ipix_from_ra_dec(nside, ra, dec, nest=True):
-#     """HEALPix index from RA and dec"""
-#     (theta, phi) = (np.pi/2.-dec, ra)
-#     return hp.ang2pix(nside, theta, phi, nest=nest)
-
-
-# def make_pixdict(low_nside, high_nside, nest=True):
-#     high_pix = np.arange(hp.nside2npix(high_nside))
-#     high_radec = ra_dec_from_ipix(nside=high_nside, ipix=high_pix, nest=nest)
-#     low_pix = ipix_from_ra_dec(low_nside, *high_radec, nest=nest)
-#     return {key: value for key, value in zip(high_pix, low_pix)}
-
-
-# def get_cachedir(cachedir=None):
-#     if cachedir is None:
-#         if 'DSP_CACHE' in os.environ.keys():
-#             cachedir = os.environ['DSP_CACHE']
-#         else:
-#             cachedir = os.path.join(os.environ['HOME'], '.cache/darksirenpop')
-#     os.makedirs(cachedir, exist_ok=True)
-#     return cachedir
-
-
 if __name__ == '__main__':
 
     from redshift_utils import *
@@ -224,35 +228,3 @@ if __name__ == '__main__':
     plt.plot(zz, Z_DIST_ALT(zz))
     plt.show()
 
-
-    # import matplotlib.pyplot as plt
-    # from astropy.cosmology import FlatLambdaCDM
-    # import astropy.units as u
-    # import scipy.stats as stats
-    # from scipy.optimize import root_scalar
-    # from scipy.special import erf
-    # import time
-    # from tqdm import tqdm
-
-    # n = int(1e4)
-    # p = int(1e3)
-    # data = np.random.normal(size=n)
-    # points = np.linspace(-5, 5, p)
-
-    # start = time.time()
-    # kde = stats.gaussian_kde(data)(points)
-    # print('kde', time.time() - start)
-
-    # # start = time.time()
-    # # ckde = ckd_tree_kde_evaluation(data, points)  # Faster and adequate for n=1e4 and p=1e4, never worth it below n=1e3
-    # # print('ckde', time.time() - start)
-
-    # start = time.time()
-    # hkde = histogram_pdf(data, points)
-    # print('hkde', time.time() - start)
-
-    # plt.figure()
-    # plt.plot(points, kde, color='blue')
-    # # plt.plot(points, ckde, color='red')
-    # plt.plot(points, hkde, color='black')
-    # plt.show()
