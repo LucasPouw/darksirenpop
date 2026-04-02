@@ -27,15 +27,15 @@ class UniformComovingPrior:
 required paths that cannot be specified:
 self.SKYMAP_DIR = f"./skymaps_
 self.SAMPLES_DIR = f"./posterior_samples_
+self.GW_ZPOST_DIR = f"./skymaps_evaluated_
 self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_
-
-FIXME: crossmatch does not get the cfg object, which means it uses the cosmology from the default_globals file
 '''
 
 
 @dataclass
 class Config:
     # ---------------- BASE INPUTS ----------------
+    FLAT_GW_POSTERIORS: bool = False
     VERBOSE: bool = True
     THREADING: bool = False
     N_WORKERS: int = 16
@@ -249,6 +249,7 @@ class Config:
         # -------- GW FILES --------
         self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
         self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
+        self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
 
         self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
         self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]

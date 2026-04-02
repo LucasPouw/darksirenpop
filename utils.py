@@ -1,9 +1,63 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib as mpl
+import sys
 # import healpy as hp
 # import os
 # from scipy.spatial import cKDTree
+
+
+def log10addexp10(a, b):
+    return np.maximum(a, b) + np.log10(1 + 10**(-abs(a - b)))
+
+
+def sample_from_distribution(pdf, x_grid, n_samples):
+    x_grid = np.asarray(x_grid)
+
+    if not np.all(np.diff(x_grid) > 0):
+        raise ValueError("x_grid must be strictly increasing")
+
+    y = np.clip(pdf(x_grid), 0, None)
+
+    dx = np.diff(x_grid)
+    dx = np.append(dx, dx[-1])
+
+    cdf = np.cumsum(y * dx)
+
+    if cdf[-1] == 0:
+        raise ValueError("PDF integrates to zero over the provided grid.")
+
+    cdf /= cdf[-1]
+
+    u = np.random.rand(n_samples)
+    return np.interp(u, cdf, x_grid)
+
+
+def print_memory_usage(scope=None):
+    """
+    Print all variables in the given scope and their memory usage in MiB.
+    """
+    if scope is None:
+        scope = globals()  # default to global variables
+
+    total_bytes = 0
+    print(f"{'Name':30} {'Type':20} {'MiB':>10}")
+    print("-" * 65)
+
+    for name, obj in scope.items():
+        try:
+            if isinstance(obj, np.ndarray):
+                size = obj.nbytes
+            else:
+                size = sys.getsizeof(obj)
+            total_bytes += size
+            size_mib = size / (1024**2)
+            print(f"{name:30} {type(obj).__name__:20} {size_mib:10.2f}")
+        except:
+            pass  # some objects may fail getsizeof
+
+    print("-" * 65)
+    print(f"{'TOTAL':30} {'':20} {total_bytes / (1024**2):10.2f}")
 
 
 def gaussian(x, mu, sigma):
@@ -145,7 +199,31 @@ def get_run(key):
 #     return cachedir
 
 
-# if __name__ == '__main__':
+if __name__ == '__main__':
+
+    from redshift_utils import *
+    from scipy.interpolate import interp1d
+    from scipy.integrate import romb
+
+    AGN_DIST_DIR = './darksirenpop/agn_distribution'
+    AGN_ZPRIOR = '46.5_kulkarni'
+    ZMAX = 3
+
+    filename = f'{AGN_DIST_DIR}/agn_redshift_pdf_{AGN_ZPRIOR}.npy'
+    print(f'Loading AGN redshift distribution from file: {filename}')
+    z, n = np.load(filename)
+    AGN_DIST = interp1d(z, n, bounds_error=False, fill_value=0)
+
+    Z_DIST_AGN = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * AGN_DIST(z) / romb(time_dilation_correction(z) * AGN_DIST(z), dx=np.diff(z)[0])
+    Z_DIST_ALT = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z) / romb(time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z), dx=np.diff(z)[0])
+
+    zz = np.linspace(0, ZMAX, 1024+1)
+    samps = sample_from_distribution(Z_DIST_ALT, zz, n_samples=int(1e7))
+    plt.figure()
+    plt.hist(samps, density=True, bins=50)
+    plt.plot(zz, Z_DIST_ALT(zz))
+    plt.show()
+
 
     # import matplotlib.pyplot as plt
     # from astropy.cosmology import FlatLambdaCDM

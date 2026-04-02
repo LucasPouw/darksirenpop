@@ -56,12 +56,6 @@ def crossmatch_p26(
                     background_agn_distribution,
                     **merger_rate_kwargs):
 
-    # agn_redshift_err is only needed as argument for this assertion, could remove it. -- 16-03-2026: z_integral_ax is now made automatically to enforce this, so it should never trigger. Can be removed.
-    # if not assume_perfect_redshift:
-    #     maxdiff = np.max(np.diff(z_integral_ax))
-    #     thresh = np.min(agn_redshift_err) #/ 10
-    #     assert maxdiff < thresh, f'LOS zprior resolution is too coarse to capture AGN distribution fully: Got {maxdiff} need {thresh}'
-
     if linax:
         dz = np.diff(z_integral_ax)[0]
         jacobian = 1
@@ -156,6 +150,7 @@ def crossmatch_p26(
         gw_redshift_posterior_marginalized_cw = lambda z: PEprior.copy() * np.sum(dA[surveyed]) / np.sum(dA)
 
     gw_redshift_posterior_marginalized_evaluated = gw_redshift_posterior_marginalized(z_integral_ax)
+    gw_redshift_posterior_marginalized_cw_evaluated = gw_redshift_posterior_marginalized_cw(z_integral_ax)
 
     ### Alternative-origin population part ###
     
@@ -202,10 +197,10 @@ def crossmatch_p26(
     ##################################################
 
     # Out-of-catalogue part
-    S_agn_outofcat = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax)) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
+    S_agn_outofcat = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw_evaluated) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
 
     # a = romb(y=gw_redshift_posterior_marginalized_evaluated / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
-    # b = romb(fc_of_z * gw_redshift_posterior_marginalized_cw(z_integral_ax) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
+    # b = romb(fc_of_z * gw_redshift_posterior_marginalized_cw_evaluated / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization
     # print('should be a:', romb(y=p_rate_of_z_agn * normed_agn_background_dist, dx=dz) / agn_population_prior_normalization)
     # print('should be b:', romb(y=fc_of_z * sky_coverage * p_rate_of_z_agn * normed_agn_background_dist, dx=dz) / agn_population_prior_normalization)
     # print(S_agn_outofcat, a - b, 'different?')
@@ -220,7 +215,6 @@ def crossmatch_p26(
     unique_gw_pixidx_containing_agn = np.unique(gw_pixidx_at_agn_locs_within_cl)  # We only need to consider the GW pixels with catalog support
     distnorm_allpix, distmu_allpix, distsigma_allpix = norm[unique_gw_pixidx_containing_agn], mu[unique_gw_pixidx_containing_agn], sigma[unique_gw_pixidx_containing_agn]
     # print(f'Found {nagn_within_cl} AGN within {skymap_cl} CL in {len(unique_gw_pixidx_containing_agn)} pixels')
-
     if assume_perfect_redshift:  # Delta-function AGN posteriors make the calculations easier
 
         PEprior_func = lambda z: uniform_comoving_prior(z)
@@ -293,6 +287,7 @@ def crossmatch_p26(
         # plt.plot(z_integral_ax, agn_population_prior_rate_weighted / agn_population_prior_normalization, label='combined')
         # plt.legend()
         # plt.show()
+    
     return S_agn_incat, S_agn_outofcat, S_alt
 
 
