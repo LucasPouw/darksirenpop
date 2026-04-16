@@ -64,63 +64,27 @@ def gaussian(x, mu, sigma):
 
 
 def truncnorm_pdf_inplace(z, mu, sigma, zmin=0.0, out=None):
-    """
-    Memory-efficient computation of normalization constants.
 
-    Parameters
-    ----------
-    mu : (N, 1)
-    sigma : (N, 1)
-    zmin : float
-    zmax : float
-    prior_fn : function(z) -> array
-    n_norm : int
-    out : optional buffer (N, n_norm)
-
-    Returns
-    -------
-    z_norms : (N,)
-    """
-
-    # Ensure shapes
+    # Ensure shape
     mu = np.asarray(mu)
     sigma = np.asarray(sigma)
     z = np.asarray(z)
 
-    if z.ndim == 1:
-        N = mu.shape[0]
-        M = z.shape[0]
+    shape = np.broadcast(z, mu, sigma).shape
+    out = np.empty(shape, dtype=np.float32)
 
-        if out is None:
-            out = np.empty((N, M), dtype=np.float64)
-
-        out[:] = z
-        out -= mu
-        out /= sigma
-
-    elif z.ndim == 2:
-        if out is None:
-            out = np.empty_like(z)
-
-        out[:] = z
-        out -= mu      # (N, M) - (N, 1)
-        out /= sigma
-
-    else:
-        raise ValueError("z must be 1D or 2D")
-
-    # exp(-0.5 * t^2)
+    # Calculate exponential
+    out[:] = z
+    out -= mu
+    out /= sigma
     np.square(out, out=out)
     out *= -0.5
     np.exp(out, out=out)
-
-    # divide by sigma
     out /= sigma
 
-    # normalization
+    # Normalization
     a = (zmin - mu) / sigma
     Z = 1.0 - stats.norm.cdf(a)
-
     out /= Z
 
     return out

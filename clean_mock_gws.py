@@ -14,22 +14,23 @@ from astropy.coordinates import SkyCoord
 from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap import moc
 
-from redshift_utils import redshift_pdf_given_lumdist_pdf
+from redshift_utils import redshift_pdf_given_lumdist_pdf, fast_z_at_value
+from default_globals import COSMO
 
 
-def allsky_marginal_lumdist_distribution_old(dl_array, dP, norm, mu, sigma):
-    dl_array = np.atleast_1d(dl_array)             # shape (M,)
+# def allsky_marginal_lumdist_distribution_old(dl_array, dP, norm, mu, sigma):
+#     dl_array = np.atleast_1d(dl_array)             # shape (M,)
 
-    # Broadcast: (M,1) vs (N,)
-    dl = dl_array[:, None]                         # (M,1)
-    mu = mu[None, :]                               # (1,N)
-    sigma = sigma[None, :]                         # (1,N)
-    norm = norm[None, :]
-    dP = dP[None, :]
+#     # Broadcast: (M,1) vs (N,)
+#     dl = dl_array[:, None]                         # (M,1)
+#     mu = mu[None, :]                               # (1,N)
+#     sigma = sigma[None, :]                         # (1,N)
+#     norm = norm[None, :]
+#     dP = dP[None, :]
 
-    gauss = np.exp(-0.5 * ((dl - mu)/sigma)**2) / (sigma * np.sqrt(2*np.pi))
-    result = np.sum(dP * norm * (dl**2) * gauss, axis=1)  # sum over N
-    return result
+#     gauss = np.exp(-0.5 * ((dl - mu)/sigma)**2) / (sigma * np.sqrt(2*np.pi))
+#     result = np.sum(dP * norm * (dl**2) * gauss, axis=1)  # sum over N
+#     return result
 
 
 @njit(parallel=True, fastmath=True)
@@ -67,16 +68,27 @@ def allsky_marginal_lumdist_distribution(dl_array, dP, norm, mu, sigma):
     return result
 
 
-DIRECTORY_ID = 'all'
-SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
+ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
+TYPES = ['agn', 'alt']
+DIRECTORY_IDS = np.arange(1, 201, 1)
+
+# DIRECTORY_ID = 'all'
+# SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
+# WRITE_DIR = f"./skymaps_evaluated_{DIRECTORY_ID}/"
+
 SKYMAP_CL = 0.999
 CMAP_NSIDE = 64
-Z_INTEGRAL_AX = np.linspace(0, 10, 5000)
-HIGHRES_Z_AX = np.linspace(0, 1.5, int(1e5))
 
-WRITE_DIR = f"./skymaps_evaluated_{DIRECTORY_ID}/"
-if not os.path.isdir(WRITE_DIR):
-    os.mkdir(WRITE_DIR)
+
+# './skymaps_all/skymap_0_0_09209.fits.gz'
+# './skymaps_all/skymap_0_0_68746.fits.gz'
+# './skymaps_all/skymap_0_0_61817.fits.gz'
+# './skymaps_all/skymap_0_0_42167.fits.gz'
+# './skymaps_all/skymap_0_0_05319.fits.gz'
+# './skymaps_all/skymap_0_0_23408.fits.gz'
+# './skymaps_all/skymap_0_0_28130.fits.gz'
+# './skymaps_all/skymap_0_0_29363.fits.gz', -1.0335503891267742e-26
+# GOT NEGATIVE: ./skymaps_all/skymap_0_0_03699.fits.gz, -6.889905642469645e-27
 
 
 npix = hp.nside2npix(CMAP_NSIDE)
@@ -89,72 +101,101 @@ completeness_map[~outside_galactic_plane_pix] = 0
 
 
 
-gw_fnames = glob.glob(SKYMAP_DIR + 'skymap*.fits.gz')
-for _, filename in tqdm(enumerate(gw_fnames), total=len(gw_fnames)):
+for DIRECTORY_ID in DIRECTORY_IDS:
 
-    gw_id = filename[-13:-8]
+    for TYPE in TYPES:
 
-    sky_map = read_sky_map(filename, moc=True)
-    sky_map = np.flipud(np.sort(sky_map, order="PROBDENSITY"))
-    
-    # Unpacking skymap
-    dP_dA = sky_map["PROBDENSITY"]  # Probdens in 1/sr
-    mu = sky_map["DISTMU"]          # Ansatz mean in Mpc
-    sigma = sky_map["DISTSIGMA"]    # Ansatz width in Mpc
-    norm = sky_map["DISTNORM"]      # Ansatz norm in 1/Mpc^2
-    norm[np.isinf(norm)] = 0        # Infs are observed to happen rarely in low-probability sky regions, this line avoids nans later if using CL->1
+        SKYMAP_DIR = f'{ROOT_DIRECTORY}/output_run_{DIRECTORY_ID}/skymaps/{TYPE}/'
+        WRITE_DIR = f'{ROOT_DIRECTORY}/output_run_{DIRECTORY_ID}/skymaps_evaluated/{TYPE}/'
 
-    if np.sum(np.isnan(dP_dA)) > 0:
-        print('BAD SKYMAP')
-        sys.exit('TODO: run function deleting the skymap and its true source')
-
-    dA = moc.uniq2pixarea(sky_map["UNIQ"])  # Pixel areas in sr
-    dP = dP_dA * dA  # Dimensionless probability density in each pixel
-    cumprob = np.cumsum(dP)
-    cumprob[cumprob > 1] = 1.  # Correcting floating point error which could cause issues when skymap_cl == 1
-
-    # Get GW redshift posterior marginalized over the whole sky and sky-completeness-weighted (for now that is just 1 or 0 depending on surveyed sky region)
-    skymap_theta, skymap_phi = moc.uniq2ang(sky_map['UNIQ'])
-    cmap_nside = hp.npix2nside(len(completeness_map))
-    pix_idx = hp.ang2pix(cmap_nside, skymap_theta, skymap_phi, nest=True)
-    pixprob_within_cl = (cumprob <= SKYMAP_CL)
-    cmap_vals_in_gw_skymap = completeness_map[pix_idx]
-    surveyed = (cmap_vals_in_gw_skymap != 0)
-    skyprob_nonzero = (dP != 0)
-
-    gw_redshift_posterior_marginalized_evaluated = redshift_pdf_given_lumdist_pdf(Z_INTEGRAL_AX, 
-                                                                                    allsky_marginal_lumdist_distribution, 
-                                                                                    dP=dP[skyprob_nonzero & pixprob_within_cl],
-                                                                                    norm=norm[skyprob_nonzero & pixprob_within_cl], 
-                                                                                    mu=mu[skyprob_nonzero & pixprob_within_cl], 
-                                                                                    sigma=sigma[skyprob_nonzero & pixprob_within_cl])
-    
-    # Marginalize the GW posterior over sky position, weighting with sky completeness (currently only 1 for surveyed and 0 for not surveyed): int dOmega p_GW(z, Omega | d) * p(G|z, Omega)
-    gw_redshift_posterior_marginalized_cw_evaluated = redshift_pdf_given_lumdist_pdf(Z_INTEGRAL_AX, 
-                                                                                    allsky_marginal_lumdist_distribution, 
-                                                                                    dP=dP[surveyed & skyprob_nonzero & pixprob_within_cl],
-                                                                                    norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl], 
-                                                                                    mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl], 
-                                                                                    sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl])
-    
-    # np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_evaluated]))
-    # np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_cw_evaluated]))
+        if not os.path.isdir(WRITE_DIR):
+            os.makedirs(WRITE_DIR)
 
 
 
+        gw_fnames = glob.glob(SKYMAP_DIR + 'skymap*.fits.gz')
+        for i, filename in tqdm(enumerate(gw_fnames), total=len(gw_fnames)):
+
+            gw_id = filename[-13:-8]
+
+            sky_map = read_sky_map(filename, moc=True)
+            sky_map = np.flipud(np.sort(sky_map, order="PROBDENSITY"))
+            
+            # Unpacking skymap
+            dP_dA = sky_map["PROBDENSITY"]  # Probdens in 1/sr
+            mu = sky_map["DISTMU"]          # Ansatz mean in Mpc
+            sigma = sky_map["DISTSIGMA"]    # Ansatz width in Mpc
+            norm = sky_map["DISTNORM"]      # Ansatz norm in 1/Mpc^2
+            norm[np.isinf(norm)] = 0        # Infs are observed to happen rarely in low-probability sky regions, this line avoids nans later if using CL->1
+
+            if np.sum(np.isnan(dP_dA)) > 0:
+                print('BAD SKYMAP')
+                sys.exit('TODO: run function deleting the skymap and its true source')
+
+            dA = moc.uniq2pixarea(sky_map["UNIQ"])  # Pixel areas in sr
+            dP = dP_dA * dA  # Dimensionless probability density in each pixel
+            cumprob = np.cumsum(dP)
+            cumprob[cumprob > 1] = 1.  # Correcting floating point error which could cause issues when skymap_cl == 1
+
+            # Get GW redshift posterior marginalized over the whole sky and sky-completeness-weighted (for now that is just 1 or 0 depending on surveyed sky region)
+            skymap_theta, skymap_phi = moc.uniq2ang(sky_map['UNIQ'])
+            cmap_nside = hp.npix2nside(len(completeness_map))
+            pix_idx = hp.ang2pix(cmap_nside, skymap_theta, skymap_phi, nest=True)
+            pixprob_within_cl = (cumprob <= SKYMAP_CL)
+            cmap_vals_in_gw_skymap = completeness_map[pix_idx]
+            surveyed = (cmap_vals_in_gw_skymap != 0)
+            skyprob_nonzero = (dP != 0)
+
+            if np.median(mu[skyprob_nonzero & pixprob_within_cl]) > 0:
+                median = fast_z_at_value(COSMO.luminosity_distance, np.median(mu[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
+                error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
+                eval_ax = np.linspace(median - 10 * error, median + 10 * error, 500)
+
+            else:
+                median = 0
+                error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
+                eval_ax = np.linspace(0, 10 * error, 500)
+            
+
+            if np.isnan(median):
+                    print('BAD SKYMAP, SKIPPING FILE:', filename)
+                    continue
+
+            gw_redshift_posterior_marginalized_evaluated = redshift_pdf_given_lumdist_pdf(eval_ax, 
+                                                                                            allsky_marginal_lumdist_distribution, 
+                                                                                            dP=dP[skyprob_nonzero & pixprob_within_cl],
+                                                                                            norm=norm[skyprob_nonzero & pixprob_within_cl], 
+                                                                                            mu=mu[skyprob_nonzero & pixprob_within_cl], 
+                                                                                            sigma=sigma[skyprob_nonzero & pixprob_within_cl])
+            
+            # Marginalize the GW posterior over sky position, weighting with sky completeness (currently only 1 for surveyed and 0 for not surveyed): int dOmega p_GW(z, Omega | d) * p(G|z, Omega)
+            gw_redshift_posterior_marginalized_cw_evaluated = redshift_pdf_given_lumdist_pdf(eval_ax, 
+                                                                                            allsky_marginal_lumdist_distribution, 
+                                                                                            dP=dP[surveyed & skyprob_nonzero & pixprob_within_cl],
+                                                                                            norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl], 
+                                                                                            mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl], 
+                                                                                            sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl])
+            
+            np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_evaluated]))
+            np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_cw_evaluated]))
+
+            # if np.median(mu[skyprob_nonzero & pixprob_within_cl]) < 0:
+            #     HIGHRES_Z_AX = np.linspace(0, 3, 513)
+            #     # z_array, post = np.load(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}.npy')
+            #     gwpost_interp = CubicSpline(eval_ax, gw_redshift_posterior_marginalized_evaluated, extrapolate=False)
+            #     gwpost_interp_eval = gwpost_interp(HIGHRES_Z_AX)
+            #     gwpost_interp_eval[np.isnan(gwpost_interp_eval)] = 0
+
+            #     print(np.trapezoid(gwpost_interp_eval, HIGHRES_Z_AX))
+
+            #     print(np.sum(gwpost_interp(HIGHRES_Z_AX) == 0))
+            #     plt.figure()
+            #     plt.plot(eval_ax, gw_redshift_posterior_marginalized_evaluated)
+            #     plt.plot(HIGHRES_Z_AX, gwpost_interp_eval)
+            #     # plt.xlim(median - 10 * error, median + 10 * error)
+            #     plt.show()
 
 
-    # gwpost_interp = CubicSpline(Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_evaluated, extrapolate=False)
-    # gwpost_cw_interp = CubicSpline(Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_cw_evaluated, extrapolate=False)
-    # # gwpost_interp = interp1d(Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_evaluated, kind='linear', bounds_error=False, fill_value=0)  
-    # # gwpost_cw_interp = interp1d(Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_cw_evaluated, kind='linear', bounds_error=False, fill_value=0)
-
-
-
-
-
-    # z_array, post = np.load(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}.npy')
-    # gwpost_interp = CubicSpline(z_array, post, extrapolate=False)
 
     # z_array, cwpost = np.load(f'{WRITE_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}.npy')
     # gwpost_cw_interp = CubicSpline(z_array, cwpost, extrapolate=False)

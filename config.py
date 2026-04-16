@@ -42,19 +42,26 @@ class Config:
 
     REAL_DATA: bool = False
     USE_SKYMAPS: bool = True
-    SOURCE_FRAME_MASS_PRIOR: str | None = None
+    # SOURCE_FRAME_MASS_PRIOR: str | None = None
 
-    N_REALIZATIONS: int = 1
-    BATCH: int = 150
-    TRUE_FAGN: float = 0.5
+    N_REALIZATIONS: int = 1  # Either sample this many GW data realizations on the fly or load this many from the provided MOCKDATA_ROOT
+    TRUE_FAGN: Union[float, str] = 0.5  # float or 'random'
 
-    OUTFILE: str = './runs.json'
+    ### Specify either the root directory where all mock data is, generated with all desired properties ###
+    MOCKDATA_ROOT: str = None
+    #########
+
+    ### Or resample a number of GWs (BATCH) from a big pool (specified by DIRECTORY_ID) according to a true f_agn (TRUE_FAGN) ###
     DIRECTORY_ID: str = 'all'
-    AGN_DIST_DIR: str = './darksirenpop/agn_distribution'
-    CATALOG_PATH: str = "./agn_data/Quaia_z15.csv"
+    BATCH: int = 150
+    #########
+
+    OUTFILE: str = '/home/lucas/Documents/PhD/runs.json'
+    AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/darksirenpop/agn_distribution'
+    CATALOG_PATH: str = "/home/lucas/Documents/PhD/agn_data/Quaia_z15.csv"
     POST_DIR = '/home/lucas/Documents/PhD/fagn_posteriors'
-    PLOT_DIR = './darksirenpop/plots'
-    CMAP_PATH: str = "./completeness_map.fits"
+    PLOT_DIR = '/home/lucas/Documents/PhD/darksirenpop/plots'
+    CMAP_PATH: str = "/home/lucas/Documents/PhD/completeness_map.fits"
 
     SKYMAP_CL: float = 0.999
 
@@ -63,7 +70,7 @@ class Config:
     AGN_ZMAX: float = 10
     AGN_ZCUT: float = 1.5
 
-    QLF: str = 'kulkarni'  # 'kulkarni' -- shenA and shenB not tested, QLF is not used when AGN_ZPRIOR is not one of ['44.5', '45.0', '45.5', '46.0', '46.5']
+    QLF: str = 'kulkarni'  # 'kulkarni' -- shenA and shenB not tested, QLF is only used when AGN_ZPRIOR is one of ['44.5', '45.0', '45.5', '46.0', '46.5']
     AGN_ZPRIOR: str = 'uniform_comoving_volume'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5', '45.0', '45.5', '46.0', '46.5'
     LUM_THRESH: str = 'zero_upto_cut'  # Valid: '44.5', '45.0', '45.5', '46.0', '46.5' (V25 completeness bins), 'zero' (complete catalog), 'zero_upto_cut' (complete catalog up to a redshift cut), 'inf' (empty catalog)
 
@@ -77,7 +84,7 @@ class Config:
     CORRECT_TIME_DILATION: bool = True
     MERGER_RATE: str = 'madau'
 
-    # ---------------- MAGICS THAT SHOULDN'T NEED TO CHANGE EVER ----------------
+    # ---------------- MAGIC NUMBERS THAT SHOULDN'T NEED TO CHANGE EVER ----------------
     LINAX: bool = True
     CALC_LOGLLH_AT_N_POINTS: int = 1000
     AGN_ZPRIOR_NORM_AX_N_POINTS: int = 1024+1
@@ -157,6 +164,11 @@ class Config:
 
     # ---------------- FINALIZE ----------------
     def finalize(self):
+
+        if self.FLAT_GW_POSTERIORS:
+            print('Forcing skymap CL to 1 since we test normalizations using flat GW posteriors.')
+            self.SKYMAP_CL = 1
+
         # ---------------- COSMOLOGY ----------------
         self.COSMO = Planck15.clone(H0=self.H0, Om0=self.OM0)
 
@@ -177,9 +189,15 @@ class Config:
             os.environ["OMP_NUM_THREADS"] = "1"
 
         # -------- TRUE/REALIZED FAGNS --------
-        self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
-        self.REALIZED_FAGNS = np.random.binomial(self.BATCH, self.TRUE_FAGNS) / self.BATCH
-        self.N_TRUE_FAGNS = len(self.TRUE_FAGNS)
+        if self.TRUE_FAGN == 'random':
+            self.TRUE_FAGNS = np.random.uniform(size=self.N_REALIZATIONS)
+        else:
+            self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
+
+        if self.MOCKDATA_ROOT == None:
+            self.REALIZED_FAGNS = np.random.binomial(self.BATCH, self.TRUE_FAGNS) / self.BATCH
+        else:
+            self.REALIZED_FAGNS = self.TRUE_FAGNS.copy()  # Only used to print value. I forgot to save the realized f_agn in this case, so just print the true value.
 
         # -------- DISTANCES --------
         self.COMDIST_MIN = self.COSMO.comoving_distance(self.ZMIN).value
@@ -247,17 +265,19 @@ class Config:
         self.Z_INTEGRAL_AX = self.get_z_integral_ax()
 
         # -------- GW FILES --------
-        self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
-        self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
-        self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
+        if self.MOCKDATA_ROOT == None:
+            self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
+            self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
+            self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
 
-        self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
-        self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]
-        self.TRUE_SOURCE_IDENTIFIERS = self.ALL_TRUE_SOURCES[:,0]
+            self.ALL_TRUE_SOURCES = np.genfromtxt(f'../true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
+            self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]
+            self.TRUE_SOURCE_IDENTIFIERS = self.ALL_TRUE_SOURCES[:,0]
 
-        if self.USE_SKYMAPS:
-            self.ALL_GW_FNAMES = np.array(glob.glob(self.SKYMAP_DIR + 'skymap_*'))
-            self.FILE_TYPE = 'skymap'
-        else:
-            self.ALL_GW_FNAMES = np.array(glob.glob(self.SAMPLES_DIR + 'gw_*'))
-            self.FILE_TYPE = 'samples'
+            if self.USE_SKYMAPS:
+                self.ALL_GW_FNAMES = np.array(glob.glob(self.SKYMAP_DIR + 'skymap_*'))
+                self.FILE_TYPE = 'skymap'
+            else:
+                raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
+                self.ALL_GW_FNAMES = np.array(glob.glob(self.SAMPLES_DIR + 'gw_*'))
+                self.FILE_TYPE = 'samples'

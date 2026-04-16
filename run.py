@@ -156,8 +156,8 @@ if __name__ == "__main__":
     log_llh = run_worker(cfg)
 
     time_now = datetime.now().isoformat()
-    fname = f'{cfg.POST_DIR}/{cfg.FAGN_POSTERIOR_FNAME}_{time_now}.npy'
-    np.save(fname, log_llh)
+    fname = f'{cfg.POST_DIR}/{cfg.FAGN_POSTERIOR_FNAME}_{time_now}.npz'
+    np.savez(fname, true_fagns=cfg.TRUE_FAGNS, log_likelihood=log_llh)
     metadata2json(fname, time_now, cfg)
     print(f'Done. Posteriors are located at: {fname}\n')
 

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import sys, os
+from pathlib import Path
 import h5py
 from astropy.table import Table
 import shutil
@@ -16,26 +17,19 @@ from scipy.integrate import romb
 from scipy.special import gammaincinv
 from scipy.interpolate import interp1d
 
-
-'''
-TODO:
-1. Keep constant: true f_agn, true total number of gws generated
-2. realize a set of gws using the actual desired distributions (SFR, time-dilation, etc. + according to the fixed numbers: use binomial around true f_agn --> n_from_agn = binomial(n = 1e5, p = 0.5), n_from_alt = 1e5 - n_from_agn)
-3. Enforce detection condition (e.g. z_obs < 1)
-4. Make skymaps of observed events (should be roughly 150)
-'''
-
 import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_id", type=int, required=True)
-parser.add_argument("--overwrite", type=bool, required=True)
-parser.add_argument("--nonuniform", type=bool, required=True)
+parser.add_argument("--overwrite", action="store_true")
+parser.add_argument("--nonuniform", action="store_true")
+parser.add_argument("--batch", type=int, required=True)
 args = parser.parse_args()
 
 OUTPUT_DIR = f"output_run_{args.run_id}"
 OVERWRITE = args.overwrite
 NONUNIFORM = args.nonuniform
+BATCH = args.batch  #int(3000)
 
 ############## INPUT PARAMETERS ##############
 MAKE_SKYMAPS = True 
@@ -47,12 +41,13 @@ N_POSTERIOR_SAMPLES = int(5e3)
 ZMIN = 1e-6
 ZMAX = 10  # p_rate(z > ZMAX) = 0
 ZCUT = 1
-BATCH = int(3000)
 
-ID = f'mock_gws_nonuniform_{NONUNIFORM}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols/{OUTPUT_DIR}'
+ID = f'mock_gws_nonuniform_{NONUNIFORM}_batch_{BATCH}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols/{OUTPUT_DIR}'
 SKYMAP_DIR = f'{ID}/skymaps'
 POST_SAMPS_DIR = f'{ID}/posterior_samples'
 TRUE_COORDS_DIR = f'{ID}/true_gw_coords'
+
+SAFE_BASE_DIRECTORY = Path(ID).resolve()
 
 ########## THESE ARGUMENTS ARE USED WHEN NONUNIFORM == TRUE ##########
 F_AGN_TRUE = 0.5
@@ -101,12 +96,20 @@ COMDIST_MAX = COSMO.comoving_distance(ZMAX).value  # Maximum comoving distance i
 def check_directory(directory, overwrite=OVERWRITE):
     if os.path.isdir(directory):
         if len(os.listdir(directory)) != 0:
+            
             if overwrite:
-                print(f'Overwriting {directory}...')
-                shutil.rmtree(directory)
-                os.makedirs(directory, exist_ok=True)
+                
+                directory = Path(directory).resolve()
+                if SAFE_BASE_DIRECTORY not in directory.parents and directory != SAFE_BASE_DIRECTORY:
+                    sys.exit(f"Refusing to delete {directory}: not inside {SAFE_BASE_DIRECTORY}")
+                
+                else:
+                    print(f'Emptying directory: {directory}')
+                    shutil.rmtree(directory)
+                    os.makedirs(directory, exist_ok=True)
+
             else:
-                sys.exit(f"{directory} exists and is not empty. Use overwrite=True.")
+                sys.exit(f"{directory} exists and is not empty. Add --overwrite or delete by hand.")
     else:
         os.makedirs(directory, exist_ok=True)
 
@@ -162,7 +165,7 @@ def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, tr
     obs_rcom, _, _ = cartesian2spherical(obs_x, obs_y, obs_z)
     obs_redshift = fast_z_at_value(COSMO.comoving_distance, obs_rcom * u.Mpc)
     sel = obs_redshift < ZCUT
-    print(f'Observed {np.sum(sel)} GWs!')
+    print(f'Observed {np.sum(sel)} GWs. Efficiency: {np.sum(sel) / n}')
 
     # true_redshift = fast_z_at_value(COSMO.comoving_distance, true_rcom * u.Mpc)
     # print(np.min(np.log10(v90)))
@@ -254,11 +257,12 @@ def main(trial_idx, fagn_idx):
     check_directory(TRUE_COORDS_DIR)
 
     if NONUNIFORM:
-        # Nruns = 100
-        # tot = 0
-        # tagn = 0
-        # talt = 0
-        # for _ in range(Nruns):
+    #     Nruns = 500
+    #     tot = 0
+    #     tagn = 0
+    #     talt = 0
+    #     for i in range(Nruns):
+    #         print(i)
         from_agn_mask = np.random.rand(BATCH) < F_AGN_TRUE
         n_from_agn = np.sum(from_agn_mask)
         n_from_alt = np.sum(~from_agn_mask)
@@ -268,9 +272,12 @@ def main(trial_idx, fagn_idx):
 
         obs_x_agn, obs_y_agn, obs_z_agn, sig_agn, v90_agn = make_observed_gw_positions(true_x_agn, true_y_agn, true_z_agn, true_rcom_agn, true_theta_agn, true_phi_agn)
         obs_x_alt, obs_y_alt, obs_z_alt, sig_alt, v90_alt = make_observed_gw_positions(true_x_alt, true_y_alt, true_z_alt, true_rcom_alt, true_theta_alt, true_phi_alt)
-        #     tot += len(obs_x_agn) + len(obs_x_alt)
-        #     tagn += len(obs_x_agn)
-        #     talt += len(obs_x_alt)
+    
+            # tot += len(obs_x_agn) + len(obs_x_alt)
+            # tagn += len(obs_x_agn) / len(true_x_agn)
+            # talt += len(obs_x_alt) / len(true_x_alt)
+
+        #     print(tagn / (i + 1), talt / (i + 1), 'current, i=', i)
         # print(tot / Nruns, 'average observed')
         # print(tagn / Nruns, 'average agn')
         # print(talt / Nruns, 'average alt')
@@ -290,9 +297,9 @@ def main(trial_idx, fagn_idx):
     else:
         true_x, true_y, true_z, true_rcom, true_theta, true_phi = make_real_gw_positions()
 
-        obs_x, obs_y, obs_z, sig = make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi)
+        obs_x, obs_y, obs_z, sig, v90 = make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi)
         make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig)
-        save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z)
+        save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z, v90)
 
         if MAKE_SKYMAPS:
             check_directory(SKYMAP_DIR)

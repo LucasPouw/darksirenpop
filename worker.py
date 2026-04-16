@@ -14,7 +14,7 @@ def run_worker(cfg):
     a plot is made of a single f_agn posterior and the code exits.
     """
     
-    log_llh = np.zeros((len(cfg.LOG_LLH_X_AX), cfg.N_TRUE_FAGNS))
+    log_llh = np.zeros((len(cfg.LOG_LLH_X_AX), cfg.N_REALIZATIONS))
 
     if cfg.THREADING:
         with ProcessPoolExecutor(max_workers=cfg.N_WORKERS) as executor:
