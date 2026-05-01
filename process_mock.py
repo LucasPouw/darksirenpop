@@ -10,9 +10,11 @@ import sys, os
 import h5py
 import healpy as hp
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import astropy_healpix as ah
 import glob
+import json
 import time
 
 from scipy.integrate import romb
@@ -197,7 +199,7 @@ def get_agn_posteriors(fagn_idx, obs_agn_redshift, agn_redshift_err, label, cfg,
     '''
 
     if cfg.ASSUME_PERFECT_REDSHIFT:
-        return np.empty(1), 1
+        return np.empty(0), 1
     
     else:
         posterior_path = f'./precompute_posteriors/agn_posteriors_precompute_gwZmax_{cfg.ZMAX}_prior_{cfg.AGN_ZPRIOR}_{fagn_idx}_{label}.hdf5'
@@ -360,16 +362,59 @@ def get_dz_and_jacobian(cfg):
     return dz, jacobian
 
 
-from numba import njit, prange
-@njit(parallel=True, cache=True)
-def compute_integrand(agn_posteriors, gw_posteriors, agn_pix_labels, dP_dA_per_agn, n_zbins):
-    integrand = np.zeros(n_zbins, dtype=np.float32)
-    for z in prange(n_zbins):
-        acc = np.float32(0.0)
-        for a in range(agn_posteriors.shape[0]):
-            acc += dP_dA_per_agn[a] * gw_posteriors[z, agn_pix_labels[a]] * agn_posteriors[a, z]
-        integrand[z] = acc
-    return integrand
+# from numba import njit, prange
+# @njit(parallel=True, cache=True)
+# def compute_integrand(agn_posteriors, gw_posteriors, agn_pix_labels, dP_dA_per_agn, n_zbins):
+#     integrand = np.zeros(n_zbins, dtype=np.float32)
+#     for z in prange(n_zbins):
+#         acc = np.float32(0.0)
+#         for a in range(agn_posteriors.shape[0]):
+#             acc += dP_dA_per_agn[a] * gw_posteriors[z, agn_pix_labels[a]] * agn_posteriors[a, z]
+#         integrand[z] = acc
+#     return integrand
+
+
+def get_gw_zpost(filename, cfg, gwkey=None):
+    '''
+    Load pre-calculated GW redshift posterior and interpolate with scipy.interpolate.CubicSpline to the redshift integral axis.
+    We make a distinction between the total redshift posterior and the posterior weighted by the survey footprint.
+    '''
+
+    if cfg.REAL_DATA:
+        with open(cfg.REAL_ZPOSTS_JSON_PATH, "r") as f:
+            gw_zpost_path_dict = json.load(f)
+            gw_zpost_path = gw_zpost_path_dict[gwkey]
+        
+        with open(cfg.REAL_CW_ZPOSTS_JSON_PATH, "r") as f:
+            gw_zpost_cw_path_dict = json.load(f)
+            gw_zpost_cw_path = gw_zpost_cw_path_dict[gwkey]
+
+    else:
+        gw_id = filename[-13:-8]
+
+        if cfg.MOCKDATA_ROOT == None:
+            gw_zpost_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
+            gw_zpost_cw_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
+        else:
+            agn_or_alt = filename.split('/')[-2]
+            output_run = filename.split('/')[-4]
+            gw_zpost_path = f'{cfg.MOCKDATA_ROOT}/{output_run}/skymaps_evaluated/{agn_or_alt}/zpost_{gw_id}_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
+            gw_zpost_cw_path = f'{cfg.MOCKDATA_ROOT}/{output_run}/skymaps_evaluated/{agn_or_alt}/zpost_{gw_id}_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
+    
+    z, p = np.load(gw_zpost_path)
+    gwpost_interp = CubicSpline(z, p, extrapolate=False)
+    gw_redshift_posterior_marginalized_evaluated = gwpost_interp(cfg.Z_INTEGRAL_AX)
+    gw_redshift_posterior_marginalized_evaluated[np.isnan(gw_redshift_posterior_marginalized_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
+
+    if not cfg.MASK_GALACTIC_PLANE:
+        gw_redshift_posterior_marginalized_cw_evaluated = gw_redshift_posterior_marginalized_evaluated.copy()
+    else:
+        z, p = np.load(gw_zpost_cw_path)
+        gwpost_interp = CubicSpline(z, p, extrapolate=False)
+        gw_redshift_posterior_marginalized_cw_evaluated = gwpost_interp(cfg.Z_INTEGRAL_AX)
+        gw_redshift_posterior_marginalized_cw_evaluated[np.isnan(gw_redshift_posterior_marginalized_cw_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
+    
+    return gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated
 
 
 def crossmatch(
@@ -389,38 +434,32 @@ def crossmatch(
             sky_coverage,
             normed_agn_background_dist,
             nagn_norm,
-            agn_population_prior_normalization
+            agn_population_prior_normalization,
+            gwkey
         ):
 
     dz, jacobian = get_dz_and_jacobian(cfg)
-
-    gw_id = filename[-13:-8]
-
-    if cfg.MOCKDATA_ROOT == None:
-        gw_zpost_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
-        gw_zpost_cw_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
-    else:
-        agn_or_alt = filename.split('/')[-2]
-        output_run = filename.split('/')[-4]
-        gw_zpost_path = f'{cfg.MOCKDATA_ROOT}/{output_run}/skymaps_evaluated/{agn_or_alt}/zpost_{gw_id}_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
-        gw_zpost_cw_path = f'{cfg.MOCKDATA_ROOT}/{output_run}/skymaps_evaluated/{agn_or_alt}/zpost_{gw_id}_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
 
     sky_map = read_sky_map(filename, moc=True)
     sky_map = np.flipud(np.sort(sky_map, order="PROBDENSITY"))
     
     # Unpacking skymap
-    dP_dA = sky_map["PROBDENSITY"]  # Probdens in 1/sr
-    mu = sky_map["DISTMU"]          # Ansatz mean in Mpc
-    sigma = sky_map["DISTSIGMA"]    # Ansatz width in Mpc
     norm = sky_map["DISTNORM"]      # Ansatz norm in 1/Mpc^2
     norm[np.isinf(norm)] = 0        # Infs are observed to happen rarely in low-probability sky regions, this line avoids nans later if using CL->1
+    bad_pixels = np.isnan(norm)     # NaNs occur very rarely. Seen coinciding with sigma = inf
+
+    norm = norm[~bad_pixels]
+    dP_dA = sky_map["PROBDENSITY"][~bad_pixels]  # Probdens in 1/sr
+    mu = sky_map["DISTMU"][~bad_pixels]          # Ansatz mean in Mpc
+    sigma = sky_map["DISTSIGMA"][~bad_pixels]    # Ansatz width in Mpc
+    skymap_uniq = sky_map["UNIQ"][~bad_pixels]
 
     if np.sum(np.isnan(dP_dA)) > 0:
         print('BAD SKYMAP')
         return np.nan, np.nan, np.nan
 
     # Find the pixels that contain AGN
-    order, ipix = moc.uniq2nest(sky_map["UNIQ"])
+    order, ipix = moc.uniq2nest(skymap_uniq)
     max_order = np.max(order)
     max_nside = ah.level_to_nside(max_order)
     max_ipix = ipix << np.int64(2 * (max_order - order))
@@ -431,7 +470,7 @@ def crossmatch(
     i = np.argsort(max_ipix)
     gw_pixidx_at_agn_locs = i[np.digitize(agn_pix, max_ipix[i]) - 1]  # Indeces that indicate skymap pixels that contain an AGN
 
-    dA = moc.uniq2pixarea(sky_map["UNIQ"])  # Pixel areas in sr
+    dA = moc.uniq2pixarea(skymap_uniq)  # Pixel areas in sr
     dP = dP_dA * dA  # Dimensionless probability density in each pixel
     cumprob = np.cumsum(dP)
     cumprob[cumprob > 1] = 1.  # Correcting floating point error which could cause issues when skymap_cl == 1
@@ -440,24 +479,13 @@ def crossmatch(
     # Getting only relevant AGN and pixels from the skymap
     agn_within_cl_mask = (searched_prob_at_agn_locs <= cfg.SKYMAP_CL)
     nagn_within_cl = np.sum(agn_within_cl_mask)
-    
-    if cfg.FLAT_GW_POSTERIORS:
+
+    # Load pre-calculated GW redshift posteriors
+    if cfg.FLAT_GW_POSTERIORS:  # For testing
         gw_redshift_posterior_marginalized_evaluated = PEprior.copy()
         gw_redshift_posterior_marginalized_cw_evaluated = PEprior.copy() * sky_coverage
-    
     else:
-        z, p = np.load(gw_zpost_path)
-        gwpost_interp = CubicSpline(z, p, extrapolate=False)
-        gw_redshift_posterior_marginalized_evaluated = gwpost_interp(cfg.Z_INTEGRAL_AX)
-        gw_redshift_posterior_marginalized_evaluated[np.isnan(gw_redshift_posterior_marginalized_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
-
-        if not cfg.MASK_GALACTIC_PLANE:
-            gw_redshift_posterior_marginalized_cw_evaluated = gw_redshift_posterior_marginalized_evaluated.copy()
-        else:
-            z, p = np.load(gw_zpost_cw_path)
-            gwpost_interp = CubicSpline(z, p, extrapolate=False)
-            gw_redshift_posterior_marginalized_cw_evaluated = gwpost_interp(cfg.Z_INTEGRAL_AX)
-            gw_redshift_posterior_marginalized_cw_evaluated[np.isnan(gw_redshift_posterior_marginalized_cw_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
+        gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated = get_gw_zpost(filename, cfg, gwkey=gwkey)
 
     ####################### Integrals #######################
 
@@ -587,14 +615,10 @@ def crossmatch(
     return S_agn_incat, S_agn_outofcat, S_alt
 
 
-########################################################################################################################################################
-
-
-def process_one_fagn(fagn_idx, fagn_realized, cfg):
-    print(f'\nRealization {fagn_idx + 1}/{cfg.N_REALIZATIONS}: fagn = {fagn_realized}')
-    # Give every process a unique seed -- TODO: save the seeds somewhere
-    seed = np.random.SeedSequence().generate_state(1)[0]
-    np.random.seed(seed)
+def make_mock_agn_catalog(fagn_idx, fagn_realized, cfg):
+    '''
+    Make the incomplete AGN catalog on the fly, given the source coordinates of GWs from AGN. Returns the GW filenames, catalog and estimated selection function.
+    '''
 
     ### Get true source coordinates for GWs from AGN to put in the AGN catalog ###
     if cfg.MOCKDATA_ROOT == None:  # Some steps are already done in the config
@@ -603,16 +627,22 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
         true_sources = cfg.ALL_TRUE_SOURCES[np.searchsorted(cfg.TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]  # Get all positions of GW-generating AGN
 
     else:  # Folders are unique per realization, so get them on the fly
-        gw_fnames_from_agn = glob.glob(f'{cfg.MOCKDATA_ROOT}/output_run_{fagn_idx + 1}/skymaps/agn/skymap*.fits.gz')
-        gw_fnames_from_alt = glob.glob(f'{cfg.MOCKDATA_ROOT}/output_run_{fagn_idx + 1}/skymaps/alt/skymap*.fits.gz')
+        output_directory = glob.glob(f'{cfg.MOCKDATA_ROOT}/output_run_{fagn_idx + 1}_*')[0]
+
+        gw_fnames_from_agn = glob.glob(f'{output_directory}/skymaps/agn/skymap*.fits.gz')
+        gw_fnames_from_alt = glob.glob(f'{output_directory}/skymaps/alt/skymap*.fits.gz')
         gw_fnames = np.append(gw_fnames_from_agn, gw_fnames_from_alt)
         gw_identifiers = sorted(np.array([get_id_from_fname(f) for f in gw_fnames_from_agn]).astype(int))
-
-        true_sources = np.genfromtxt(f'{cfg.MOCKDATA_ROOT}/output_run_{fagn_idx + 1}/true_gw_coords/agn/true_r_theta_phi.txt', delimiter=',')  # There are only positions of GW-generating AGN in this file, no need to sort and search
+        
+        if len(gw_identifiers) > 0:  # If there are GWs from AGN in the data set
+            true_sources = np.genfromtxt(f'{output_directory}/true_gw_coords/agn/true_r_theta_phi.txt', delimiter=',')  # There are only positions of GW-generating AGN in this file, no need to sort and search
+            true_sources = np.atleast_2d(true_sources)
+        else:
+            true_sources = np.empty((0, 5))
         # agn_true_sources = agn_true_sources[agn_true_sources[:,0].argsort()]
         # agn_true_source_identifiers = agn_true_sources[:,0]
         # true_sources = agn_true_sources[np.searchsorted(agn_true_source_identifiers, gw_identifiers)]
-    
+
     agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
     ### Complete catalog to preserve proper distribution, i.e., without overdensity below cfg.ZMAX due to adding GW-generating AGN first ###
@@ -680,6 +710,15 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     
     # def redshift_completenessx(z):
     #     return step1(z) + step2(z) + step3(z) + step4(z) + step5(z) + step6(z) + step7(z) + step8(z)
+    
+    # plt.figure()
+    # plt.plot(cfg.Z_INTEGRAL_AX, redshift_completenessx(cfg.Z_INTEGRAL_AX) * cfg.AGN_ZPRIOR_FUNCTION(cfg.Z_INTEGRAL_AX), label='True')
+    # # plt.plot(cfg.Z_INTEGRAL_AX, z_selection_function(cfg.Z_INTEGRAL_AX), label='Selection function')
+    # plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness(cfg.Z_INTEGRAL_AX) * cfg.AGN_ZPRIOR_FUNCTION(cfg.Z_INTEGRAL_AX), label='P26')
+    # plt.xlabel('Redshift')
+    # plt.ylabel('Pdet(z) * Ppop(z)')
+    # plt.legend()
+    # plt.show()
 
     # plt.figure()
     # plt.plot(cfg.Z_INTEGRAL_AX, redshift_completenessx(cfg.Z_INTEGRAL_AX), label='True')
@@ -689,6 +728,7 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     # plt.ylabel('Completeness')
     # plt.legend()
     # plt.show()
+    
 
     ### Estimate from redshift means and bins
 #     arr = np.array([
@@ -720,18 +760,34 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
 #             idx[idx < 0] = 0
 #             idx[idx >= len(fc)] = len(fc) - 1
 
-#             return fc[idx]
+#             res = fc[idx]
+#             res[z > 1.5] = 0
+
+#             return res
 
 #         return fc_of_z
 
-#     redshift_completeness = make_fc_lookup(bins, fc)
+#     redshift_completeness_v25 = make_fc_lookup(bins, fc)
 
-    # plt.figure()
-    # plt.plot(bins[:-1] + np.diff(bins)[0] / 2, fc, linewidth=2)
-    # plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness(cfg.Z_INTEGRAL_AX), linewidth=2)
-    # plt.show()
+#     plt.figure()
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completenessx(cfg.Z_INTEGRAL_AX), label='True', color='black', linewidth=3)
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness_v25(cfg.Z_INTEGRAL_AX), linewidth=2, label='V25')
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness(cfg.Z_INTEGRAL_AX), linewidth=2, label='P26')
+#     plt.xlabel('Redshift')
+#     plt.ylabel('Pdet(z)')
+#     plt.legend()
+#     plt.show()
 
-    
+#     plt.figure()
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completenessx(cfg.Z_INTEGRAL_AX) * cfg.AGN_ZPRIOR_FUNCTION(cfg.Z_INTEGRAL_AX), label='True', color='black', linewidth=3)
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness_v25(cfg.Z_INTEGRAL_AX) * cfg.AGN_ZPRIOR_FUNCTION(cfg.Z_INTEGRAL_AX), linewidth=2, label='V25')
+#     plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness(cfg.Z_INTEGRAL_AX) * cfg.AGN_ZPRIOR_FUNCTION(cfg.Z_INTEGRAL_AX), linewidth=2, label='P26')
+#     plt.xlabel('Redshift')
+#     plt.ylabel('Pdet(z) * Ppop(z)')
+#     plt.legend()
+#     plt.show()
+
+#     sys.exit(1)
 
     # redshift_completeness = z_selection_function
 
@@ -751,6 +807,68 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     # plt.legend()
     # plt.show()
     # sys.exit(1)
+    return gw_fnames, agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness
+
+
+def load_quaia(fagn_idx, cfg):
+    '''
+    Load Quaia and select sources outside the galactic plane and above the specified bolometric luminosity
+    '''
+    if cfg.LUM_THRESH == 'inf':
+        return np.empty((0, len(cfg.Z_INTEGRAL_AX))), np.empty(0), np.empty(0), np.empty(0), lambda z: np.zeros_like(z)
+
+    df = pd.read_csv(cfg.CATALOG_PATH)
+    cols = ["redshift_quaia", "redshift_quaia_err", "ra", "dec", "b", "loglbol_corr"]
+    data = df[cols]
+    b              = data["b"].to_numpy()
+    loglbol_corr   = data["loglbol_corr"].to_numpy()
+
+    outside_galactic_plane = np.logical_or((b > 10), (b < -10))
+    above_lbol_thresh = loglbol_corr >= float(cfg.LUM_THRESH)
+
+    b                  = b[outside_galactic_plane & above_lbol_thresh]
+    loglbol_corr       = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
+    agn_redshift       = data["redshift_quaia"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+    agn_redshift_err   = data["redshift_quaia_err"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+    agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+    agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+    # agn_rlum           = COSMO.luminosity_distance(agn_redshift).value
+
+    agn_posterior_dset, _ = get_agn_posteriors(fagn_idx, agn_redshift, agn_redshift_err, label=cfg.LUM_THRESH, cfg=cfg, replace_old_file=False)
+    # _, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, agn_rlum, agn_redshift)  # Quaia is already redshift incomplete, but convenient to get completeness maps this way
+
+    filename = f'{cfg.AGN_DIST_DIR}/completeness_{cfg.LUM_THRESH}_{cfg.QLF}.npy'
+    if cfg.VERBOSE:
+        print(f'Loading continuous selection function calculated from QLF from file: {filename}')
+    z, fc_of_z = np.load(filename)
+    c_above_1 = fc_of_z > 1
+    fc_of_z[c_above_1] = 1.
+    redshift_completeness = interp1d(z, fc_of_z, bounds_error=False, fill_value=0)
+
+    return agn_posterior_dset, agn_ra, agn_dec, agn_redshift, redshift_completeness
+
+
+########################################################################################################################################################
+
+
+def process_one_fagn(fagn_idx, fagn_realized, cfg):
+    
+    if cfg.REAL_DATA:
+        agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = load_quaia(fagn_idx, cfg)
+
+        with open(cfg.JSON_PATH, "r") as f:
+            gw_path_dict = json.load(f)
+        gw_keys = list(gw_path_dict.keys())
+        gw_fnames = [gw_path_dict[key] for key in gw_keys]
+    
+    else:
+        print(f'\nRealization {fagn_idx + 1}/{cfg.N_REALIZATIONS}: fagn = {fagn_realized}')
+
+        # Give every process a unique seed -- TODO: save the seeds somewhere
+        seed = np.random.SeedSequence().generate_state(1)[0]
+        np.random.seed(seed)
+        
+        gw_fnames, agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = make_mock_agn_catalog(fagn_idx, fagn_realized, cfg)
 
 
     ### Prepare functions for in the likelihood ###
@@ -816,14 +934,19 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     S_agn_outofcat = np.zeros(Ngws)
     S_alt = np.zeros(Ngws)
 
-    S_agn_incat_dict = {}
-    S_agn_outofcat_dict = {}
-    S_alt_dict = {}
+    # S_agn_incat_dict = {}
+    # S_agn_outofcat_dict = {}
+    # S_alt_dict = {}
     # from_agn_dict = {}
     for gw_idx, filename in enumerate(gw_fnames):
+        
+        if cfg.REAL_DATA:
+            gwkey = gw_keys[gw_idx]
+        else:
+            gwkey = get_id_from_fname(filename)
 
         if cfg.VERBOSE:
-                print(f'({gw_idx+1}/{len(gw_fnames)})')
+            print(f'({gw_idx+1}/{len(gw_fnames)})')
 
         if cfg.USE_SKYMAPS:
             sagn_incat, sagn_outofcat, salt = crossmatch(
@@ -843,7 +966,8 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
                                                         sky_coverage=sky_coverage,
                                                         normed_agn_background_dist=normed_agn_background_dist,
                                                         nagn_norm=nagn_norm,
-                                                        agn_population_prior_normalization=agn_population_prior_normalization
+                                                        agn_population_prior_normalization=agn_population_prior_normalization,
+                                                        gwkey=gwkey
                                                     )                      
             if np.isnan(sagn_incat) and np.isnan(sagn_outofcat) and np.isnan(salt):
                 print(filename)
@@ -873,10 +997,33 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
         S_agn_outofcat[gw_idx] = sagn_outofcat
         S_alt[gw_idx] = salt
 
-        key = get_id_from_fname(filename)
-        S_agn_incat_dict[key] = sagn_incat
-        S_agn_outofcat_dict[key] = sagn_outofcat
-        S_alt_dict[key] = salt
+        # S_agn_incat_dict[gwkey] = sagn_incat
+        # S_agn_outofcat_dict[gwkey] = sagn_outofcat
+        # S_alt_dict[gwkey] = salt
+
+        if cfg.REAL_DATA:
+            from pathlib import Path
+
+            if cfg.LUM_THRESH == 'inf':
+                json_path = '/home/lucas/Documents/PhD/gw_data/real_output_nocat.json'
+            else:
+                json_path = '/home/lucas/Documents/PhD/gw_data/real_output.json'
+
+            output_file = Path(json_path)
+
+            # Load existing data
+            if output_file.exists():
+                data = json.loads(output_file.read_text())
+            else:
+                data = {}
+
+            if not cfg.AGN_ZPRIOR in data.keys():
+                data[cfg.AGN_ZPRIOR] = {}
+
+            datadict = data[cfg.AGN_ZPRIOR] 
+            datadict[gwkey]= {'S_agn_incat': sagn_incat, 'S_agn_outcat': sagn_outofcat, 'S_alt': salt}
+            
+            output_file.write_text(json.dumps(data, indent=2))
 
         # if int(key) in gw_identifiers:
         #     from_agn_dict[key] = True
@@ -888,12 +1035,14 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     
     del agn_posterior_dset  # Free up the memory asap
 
+    
     ### Evaluate the likelihood ###
     S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
     S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
     S_alt = S_alt[~np.isnan(S_alt)]
 
     loglike = np.log(cfg.SKYMAP_CL * cfg.LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
+    total_loglike = np.sum(loglike, axis=0)  # Sum over all GWs
 
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:
@@ -903,4 +1052,4 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
         print((arr[None,:] * S_agn_outofcat[:,None])[nans])
         print((arr[None,:] * S_alt[:,None])[nans])
 
-    return fagn_idx, np.sum(loglike, axis=0)  # Sum over all GWs
+    return fagn_idx, total_loglike

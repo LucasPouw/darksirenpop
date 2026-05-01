@@ -63,8 +63,12 @@ class Config:
     PLOT_DIR = '/home/lucas/Documents/PhD/darksirenpop/plots'
     CMAP_PATH: str = "/home/lucas/Documents/PhD/completeness_map.fits"
 
-    SKYMAP_CL: float = 0.999
+    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
+    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_PEsamples_nocosmo.json'
+    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_skymaps_evaluated.json'
+    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_cw_skymaps_evaluated.json'
 
+    SKYMAP_CL: float = 0.999
     ZMIN: float = 1e-4
     ZMAX: float = 1.5
     AGN_ZMAX: float = 10
@@ -118,7 +122,7 @@ class Config:
     # FILE_TYPE: str | None = None
 
 
-    def get_z_integral_ax(self, at_least_N=1, npoints_min=512):
+    def get_z_integral_ax(self, at_least_N=1, npoints_min=1024):
         """
         Compute the redshift integral axis based on AGN redshift errors.
         """
@@ -189,14 +193,26 @@ class Config:
             os.environ["OMP_NUM_THREADS"] = "1"
 
         # -------- TRUE/REALIZED FAGNS --------
-        if self.TRUE_FAGN == 'random':
-            self.TRUE_FAGNS = np.random.uniform(size=self.N_REALIZATIONS)
-        else:
-            self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
-
+        
         if self.MOCKDATA_ROOT == None:
+
+            if self.TRUE_FAGN == 'random':
+                self.TRUE_FAGNS = np.random.uniform(size=self.N_REALIZATIONS)
+            else:
+                self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
+
             self.REALIZED_FAGNS = np.random.binomial(self.BATCH, self.TRUE_FAGNS) / self.BATCH
+
         else:
+
+            fagns = []
+            for i in range(self.N_REALIZATIONS):
+                # i = 199
+                output_dir = glob.glob(f'{self.MOCKDATA_ROOT}/output_run_{i+1}_*')[0]
+                fagn = output_dir.split('_')[-1]
+                fagns.append(fagn)
+            self.TRUE_FAGNS = np.array(fagns)
+
             self.REALIZED_FAGNS = self.TRUE_FAGNS.copy()  # Only used to print value. I forgot to save the realized f_agn in this case, so just print the true value.
 
         # -------- DISTANCES --------
@@ -244,6 +260,8 @@ class Config:
 
         # -------- POSTERIOR FILENAME --------
         self.FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{self.REAL_DATA}'
+        if self.REAL_DATA:
+            self.FAGN_POSTERIOR_FNAME += f'_{self.LUM_THRESH}'
         # if self.REAL_DATA:
         #     self.FAGN_POSTERIOR_FNAME = (
         #         f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
@@ -265,19 +283,28 @@ class Config:
         self.Z_INTEGRAL_AX = self.get_z_integral_ax()
 
         # -------- GW FILES --------
-        if self.MOCKDATA_ROOT == None:
-            self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
-            self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
-            self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
-
-            self.ALL_TRUE_SOURCES = np.genfromtxt(f'../true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
-            self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]
-            self.TRUE_SOURCE_IDENTIFIERS = self.ALL_TRUE_SOURCES[:,0]
+        if self.REAL_DATA:
 
             if self.USE_SKYMAPS:
-                self.ALL_GW_FNAMES = np.array(glob.glob(self.SKYMAP_DIR + 'skymap_*'))
-                self.FILE_TYPE = 'skymap'
+                self.JSON_PATH = self.REAL_SKYMAP_JSON_PATH
             else:
                 raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
-                self.ALL_GW_FNAMES = np.array(glob.glob(self.SAMPLES_DIR + 'gw_*'))
-                self.FILE_TYPE = 'samples'
+                # self.JSON_PATH = self.REAL_SAMPLES_JSON_PATH
+        
+        else:
+            if self.MOCKDATA_ROOT == None:
+                self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
+                self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
+                self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
+
+                self.ALL_TRUE_SOURCES = np.genfromtxt(f'../true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
+                self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]
+                self.TRUE_SOURCE_IDENTIFIERS = self.ALL_TRUE_SOURCES[:,0]
+
+                if self.USE_SKYMAPS:
+                    self.ALL_GW_FNAMES = np.array(glob.glob(self.SKYMAP_DIR + 'skymap_*'))
+                    self.FILE_TYPE = 'skymap'
+                else:
+                    raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
+                    # self.ALL_GW_FNAMES = np.array(glob.glob(self.SAMPLES_DIR + 'gw_*'))
+                    # self.FILE_TYPE = 'samples'

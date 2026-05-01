@@ -22,39 +22,35 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--run_id", type=int, required=True)
 parser.add_argument("--overwrite", action="store_true")
-parser.add_argument("--nonuniform", action="store_true")
-parser.add_argument("--batch", type=int, required=True)
+parser.add_argument("--agndist", type=str, required=True, choices=['uniform', '44.5', '46.5'])
+parser.add_argument("--ngw", type=int, required=True)
+parser.add_argument("--zmin", type=float, required=False, default=1e-6)
+parser.add_argument("--zmax", type=float, required=False, default=10)
+parser.add_argument("--zcut", type=float, required=False, default=np.inf)
+parser.add_argument("--ncpu", type=int, required=False, default=os.cpu_count() - 2)
+parser.add_argument("--npostsamps", type=int, required=False, default=int(5e3))
+parser.add_argument("--fagn", type=float, required=False, default=np.random.uniform())
 args = parser.parse_args()
 
-OUTPUT_DIR = f"output_run_{args.run_id}"
 OVERWRITE = args.overwrite
-NONUNIFORM = args.nonuniform
-BATCH = args.batch  #int(3000)
+AGNDIST = args.agndist
+BATCH = args.ngw
+ZMIN = args.zmin
+ZMAX = args.zmax  # p_rate(z > ZMAX) = 0
+ZCUT = args.zcut
+NCPU = args.ncpu
+N_POSTERIOR_SAMPLES = args.npostsamps
+F_AGN_TRUE = args.fagn  # Only used when AGNDIST != 'uniform'
 
-############## INPUT PARAMETERS ##############
 MAKE_SKYMAPS = True 
 FIXED_VOL = False  # float or False
 V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf_LVK.npy'
 
-NCPU = os.cpu_count() - 2
-N_POSTERIOR_SAMPLES = int(5e3)
-ZMIN = 1e-6
-ZMAX = 10  # p_rate(z > ZMAX) = 0
-ZCUT = 1
-
-ID = f'mock_gws_nonuniform_{NONUNIFORM}_batch_{BATCH}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols/{OUTPUT_DIR}'
-SKYMAP_DIR = f'{ID}/skymaps'
-POST_SAMPS_DIR = f'{ID}/posterior_samples'
-TRUE_COORDS_DIR = f'{ID}/true_gw_coords'
-
-SAFE_BASE_DIRECTORY = Path(ID).resolve()
-
-########## THESE ARGUMENTS ARE USED WHEN NONUNIFORM == TRUE ##########
-F_AGN_TRUE = 0.5
+########## Nonuniform AGN distributions ##########
 AGN_DIST_DIR = './darksirenpop/agn_distribution'
-AGN_ZPRIOR = '46.5_kulkarni'
-
+AGN_ZPRIOR = f'{AGNDIST}_kulkarni'
 filename = f'{AGN_DIST_DIR}/agn_redshift_pdf_{AGN_ZPRIOR}.npy'
+
 print(f'Loading AGN redshift distribution from file: {filename}')
 z, n = np.load(filename)
 AGN_DIST = interp1d(z, n, bounds_error=False, fill_value=0)
@@ -62,15 +58,15 @@ AGN_DIST = interp1d(z, n, bounds_error=False, fill_value=0)
 Z_GRID = np.linspace(0, ZMAX, 1024+1)
 Z_DIST_AGN = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * AGN_DIST(z) / romb(time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * AGN_DIST(z), dx=np.diff(z)[0])
 Z_DIST_ALT = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z) / romb(time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z), dx=np.diff(z)[0])
+####################################################
 
-# zz = np.linspace(ZMIN, ZMAX, 1024+1)
-# plt.figure()
-# plt.plot(zz, Z_DIST_ALT(zz))
-# plt.plot(zz, Z_DIST_AGN(zz))
-# plt.show()
-# sys.exit(1)
-#######################################################################
+OUTPUT_DIR = f"output_run_{args.run_id}_fagn_{F_AGN_TRUE}"
+ID = f'mock_gws_agndist_{AGNDIST}_ngw_{BATCH}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols/{OUTPUT_DIR}'
+SKYMAP_DIR = f'{ID}/skymaps'
+POST_SAMPS_DIR = f'{ID}/posterior_samples'
+TRUE_COORDS_DIR = f'{ID}/true_gw_coords'
 
+SAFE_BASE_DIRECTORY = Path(ID).resolve()
 
 COMDIST_MIN = COSMO.comoving_distance(ZMIN).value
 COMDIST_MAX = COSMO.comoving_distance(ZMAX).value  # Maximum comoving distance in Mpc
@@ -227,8 +223,6 @@ def save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z, v90, kind=None
 
 
 def make_skymaps(trial_idx, fagn_idx, kind=None):
-    print('Verifying OMP_NUM_THREADS:')
-    os.system("echo $OMP_NUM_THREADS")
 
     if kind == None:
         post_dir = POST_SAMPS_DIR
@@ -256,7 +250,7 @@ def main(trial_idx, fagn_idx):
     check_directory(POST_SAMPS_DIR)
     check_directory(TRUE_COORDS_DIR)
 
-    if NONUNIFORM:
+    if AGNDIST != 'uniform':
     #     Nruns = 500
     #     tot = 0
     #     tagn = 0
