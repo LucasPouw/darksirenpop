@@ -71,7 +71,7 @@ def allsky_marginal_lumdist_distribution(dl_array, dP, norm, mu, sigma):
 
 REAL_DATA = False
 
-ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
+ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_1.0_LVKvols' #'/home/lucas/Documents/PhD/mock_gws_agndist_44.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
 TYPES = ['agn', 'alt']
 DIRECTORY_IDS = np.arange(1, 201, 1)
 
@@ -81,18 +81,6 @@ DIRECTORY_IDS = np.arange(1, 201, 1)
 
 SKYMAP_CL = 0.999
 CMAP_NSIDE = 64
-
-
-# './skymaps_all/skymap_0_0_09209.fits.gz'
-# './skymaps_all/skymap_0_0_68746.fits.gz'
-# './skymaps_all/skymap_0_0_61817.fits.gz'
-# './skymaps_all/skymap_0_0_42167.fits.gz'
-# './skymaps_all/skymap_0_0_05319.fits.gz'
-# './skymaps_all/skymap_0_0_23408.fits.gz'
-# './skymaps_all/skymap_0_0_28130.fits.gz'
-# './skymaps_all/skymap_0_0_29363.fits.gz', -1.0335503891267742e-26
-# GOT NEGATIVE: ./skymaps_all/skymap_0_0_03699.fits.gz, -6.889905642469645e-27
-
 
 npix = hp.nside2npix(CMAP_NSIDE)
 theta, phi = hp.pix2ang(CMAP_NSIDE, np.arange(npix), nest=True)
@@ -137,13 +125,13 @@ def evaluate_skymap(filename, completeness_map=COMPLETENESS_MAP, skymap_cl=SKYMA
     skyprob_nonzero = (dP != 0)
 
     if np.median(mu[skyprob_nonzero & pixprob_within_cl]) > 0:
-        median = fast_z_at_value(COSMO.luminosity_distance, np.median(mu[skyprob_nonzero & pixprob_within_cl & ~bad_pixels]) * u.Mpc)
-        error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl & ~bad_pixels]) * u.Mpc)
+        median = fast_z_at_value(COSMO.luminosity_distance, np.median(mu[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
+        error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
         eval_ax = np.linspace(median - 10 * error, median + 10 * error, 500)
 
     else:
         median = 0
-        error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl & ~bad_pixels]) * u.Mpc)
+        error = fast_z_at_value(COSMO.luminosity_distance, np.median(sigma[skyprob_nonzero & pixprob_within_cl]) * u.Mpc)
         eval_ax = np.linspace(0, 10 * error, 500)
 
     if np.isnan(median):
@@ -152,18 +140,18 @@ def evaluate_skymap(filename, completeness_map=COMPLETENESS_MAP, skymap_cl=SKYMA
 
     gw_redshift_posterior_marginalized_evaluated = redshift_pdf_given_lumdist_pdf(eval_ax, 
                                                                                     allsky_marginal_lumdist_distribution, 
-                                                                                    dP=dP[skyprob_nonzero & pixprob_within_cl & ~bad_pixels],
-                                                                                    norm=norm[skyprob_nonzero & pixprob_within_cl & ~bad_pixels], 
-                                                                                    mu=mu[skyprob_nonzero & pixprob_within_cl & ~bad_pixels], 
-                                                                                    sigma=sigma[skyprob_nonzero & pixprob_within_cl & ~bad_pixels])
+                                                                                    dP=dP[skyprob_nonzero & pixprob_within_cl],
+                                                                                    norm=norm[skyprob_nonzero & pixprob_within_cl], 
+                                                                                    mu=mu[skyprob_nonzero & pixprob_within_cl], 
+                                                                                    sigma=sigma[skyprob_nonzero & pixprob_within_cl])
     
     # Marginalize the GW posterior over sky position, weighting with sky completeness (currently only 1 for surveyed and 0 for not surveyed): int dOmega p_GW(z, Omega | d) * p(G|z, Omega)
     gw_redshift_posterior_marginalized_cw_evaluated = redshift_pdf_given_lumdist_pdf(eval_ax, 
                                                                                     allsky_marginal_lumdist_distribution, 
-                                                                                    dP=dP[surveyed & skyprob_nonzero & pixprob_within_cl & ~bad_pixels],
-                                                                                    norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl & ~bad_pixels], 
-                                                                                    mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl & ~bad_pixels], 
-                                                                                    sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl & ~bad_pixels])
+                                                                                    dP=dP[surveyed & skyprob_nonzero & pixprob_within_cl],
+                                                                                    norm=norm[surveyed & skyprob_nonzero & pixprob_within_cl], 
+                                                                                    mu=mu[surveyed & skyprob_nonzero & pixprob_within_cl], 
+                                                                                    sigma=sigma[surveyed & skyprob_nonzero & pixprob_within_cl])
 
     return eval_ax, gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated
 
@@ -210,7 +198,7 @@ if REAL_DATA:
 else:
     
     for DIRECTORY_ID in DIRECTORY_IDS:
-        # if DIRECTORY_ID != 137:
+        # if DIRECTORY_ID != 130:
         #     continue
 
         output_directory = glob.glob(f'{ROOT_DIRECTORY}/output_run_{DIRECTORY_ID}_*')[0]
@@ -227,15 +215,16 @@ else:
 
             gw_fnames = glob.glob(SKYMAP_DIR + 'skymap*.fits.gz')
             for i, filename in tqdm(enumerate(gw_fnames), total=len(gw_fnames)):
-
-                # if i != 62:
-                #     continue
-
+                
                 gw_id = filename[-13:-8]
+
+                # if gw_id != '00021':
+                #     continue
 
                 try:
                     eval_ax, gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated = evaluate_skymap(filename)
-                except:
+                except Exception as e:
+                    print(f'Error processing {filename}: {e}')
                     continue
 
                 # print(np.sum(np.isnan(gw_redshift_posterior_marginalized_evaluated)))

@@ -648,11 +648,11 @@ def make_mock_agn_catalog(fagn_idx, fagn_realized, cfg):
     ### Complete catalog to preserve proper distribution, i.e., without overdensity below cfg.ZMAX due to adding GW-generating AGN first ###
     agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg=cfg)
     ############################################################################
-
-    # plt.figure()
-    # plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom_complete * u.Mpc), density=True, bins=100)
-    # plt.plot(AGN_ZPRIOR_NORM_AX, AGN_ZPRIOR_FUNCTION(AGN_ZPRIOR_NORM_AX))
-    # plt.show()
+    print(len(agn_ra_complete), len(agn_ra))
+    plt.figure()
+    plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc), density=True, bins=15)
+    plt.plot(cfg.AGN_ZPRIOR_NORM_AX, cfg.AGN_ZPRIOR_FUNCTION(cfg.AGN_ZPRIOR_NORM_AX))
+    plt.show()
     # sys.exit(1)
     
     if cfg.ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
@@ -908,25 +908,51 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     average_redshift_completeness = romb(fc_of_z * normed_agn_background_dist * jacobian, dx=dz)
     average_completeness = average_redshift_completeness * sky_coverage
 
+
+    alpha_alt = 0.002918
+    z_arr, pdet = np.load('/home/lucas/Documents/PhD/darksirenpop/pdet_z_0.3.npy')
+    Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
+    pdet = Pdet(cfg.Z_INTEGRAL_AX)
+    pdet[np.isnan(pdet)] = 0
+
+
     # Get zprior normalizations, dealing with delta-function AGN posteriors (then assume_perfect_redshift == True) and empty catalogues (then total_n_agn == 0)
     if cfg.ASSUME_PERFECT_REDSHIFT:
-        nagn_norm = np.sum(obs_agn_redshift < cfg.ZMAX)
+        agn_below_zmax_mask = obs_agn_redshift < cfg.ZMAX
+        agn_below_zmax = obs_agn_redshift[agn_below_zmax_mask]
+        nagn_norm = np.sum(agn_below_zmax_mask)
 
         if nagn_norm == 0:
             agn_population_prior_normalization = romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+
+            alpha_agn = romb(pdet * (1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian / agn_population_prior_normalization, dx=dz)
+
         else:            
-            agn_population_prior_normalization = average_redshift_completeness * np.sum(p_rate_of_z_agn_func(obs_agn_redshift)) / nagn_norm + romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+            agn_population_prior_normalization = average_redshift_completeness * np.sum(p_rate_of_z_agn_func(agn_below_zmax)) / nagn_norm + romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+    
+            pdet_at_agnz = Pdet(agn_below_zmax)
+            pdet_at_agnz[np.isnan(pdet_at_agnz)] = 0
+            alpha_agn = np.sum( pdet_at_agnz * average_redshift_completeness * p_rate_of_z_agn_func(agn_below_zmax) / nagn_norm )
+            alpha_agn += romb(pdet * (1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+            alpha_agn /= agn_population_prior_normalization
+    
     else:
         sum_of_all_agn_posteriors = np.sum(agn_posterior_dset, axis=0)
         nagn_norm = romb(sum_of_all_agn_posteriors, dx=dz)
 
         if nagn_norm == 0:
             agn_population_prior_normalization = romb((1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz)
+
+            alpha_agn = romb(pdet * (1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn * jacobian, dx=dz) / agn_population_prior_normalization
         else:
             # p_rate_of_z_agn imposes a redshift cut in the GW population, up to which the pop. is normalized. Therefore agn_population_prior only has to be evaluated at redshifts up to this cut.
             agn_population_prior = average_redshift_completeness * sum_of_all_agn_posteriors / nagn_norm + (1 - fc_of_z) * normed_agn_background_dist 
             agn_population_prior_rate_weighted = agn_population_prior * p_rate_of_z_agn
             agn_population_prior_normalization = romb(agn_population_prior_rate_weighted * jacobian, dx=dz)
+
+            alpha_agn = romb(pdet * agn_population_prior_rate_weighted * jacobian, dx=dz) / agn_population_prior_normalization
+
+    print(alpha_agn, 'ALPHA_AGN')
 
     ### Calculate the integrals in the likelihood ###
     Ngws = len(gw_fnames)  # Due to selection effects not always the same number
@@ -1042,7 +1068,7 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     S_alt = S_alt[~np.isnan(S_alt)]
 
     loglike = np.log(cfg.SKYMAP_CL * cfg.LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
-    total_loglike = np.sum(loglike, axis=0)  # Sum over all GWs
+    total_loglike = np.sum(loglike, axis=0) - Ngws * np.log(alpha_agn * cfg.LOG_LLH_X_AX + alpha_alt * (1 - cfg.LOG_LLH_X_AX))  # Sum over all GWs
 
     nans = np.isnan(loglike)
     if np.sum(nans) != 0:

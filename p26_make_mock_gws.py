@@ -161,6 +161,8 @@ def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, tr
     obs_rcom, _, _ = cartesian2spherical(obs_x, obs_y, obs_z)
     obs_redshift = fast_z_at_value(COSMO.comoving_distance, obs_rcom * u.Mpc)
     sel = obs_redshift < ZCUT
+    print(np.max(np.atleast_1d(true_rcom[sel])), 'max rcom')
+    print(true_rcom[sel], 'all rcom')
     print(f'Observed {np.sum(sel)} GWs. Efficiency: {np.sum(sel) / n}')
 
     # true_redshift = fast_z_at_value(COSMO.comoving_distance, true_rcom * u.Mpc)
@@ -172,7 +174,7 @@ def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, tr
     # # plt.hist(true_redshift[obs_redshift < ZCUT], bins=30, histtype='step', linewidth=2)
     # plt.show()
     # sys.exit(1)
-    return obs_x[sel], obs_y[sel], obs_z[sel], sig[sel], v90[sel]
+    return obs_x, obs_y, obs_z, sig, v90, sel
 
 
 def make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig, kind=None):
@@ -216,9 +218,28 @@ def save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z, v90, kind=None
     for _, infile in enumerate(glob.glob(f'{post_dir}/gw_{trial_idx}_{fagn_idx}_*.h5')):
         gw_idx = infile[-8:-3]
         r, theta, phi = cartesian2spherical(true_x[int(gw_idx)], true_y[int(gw_idx)], true_z[int(gw_idx)])  # Could've just used spherical coordinates directly, oh well.
-
+        print(r, theta, phi, 'coords saved')
         with open(f'{coord_dir}/true_r_theta_phi.txt', 'a') as f:
             f.write(f'{gw_idx}, {r}, {theta}, {phi}, {v90[int(gw_idx)]}\n')
+    return
+
+
+def save_coordinates_nondetections(true_x, true_y, true_z, v90, kind=None):
+    
+    nondetection_dir = f'{TRUE_COORDS_DIR}_nondetections'
+
+    if kind == None:
+        coord_dir = nondetection_dir
+    else:
+        coord_dir = f'{nondetection_dir}/{kind}'
+
+        os.makedirs(coord_dir, exist_ok=True)
+
+    for i, (x, y, z, locvol) in enumerate( zip(true_x, true_y, true_z, v90) ):
+        r, theta, phi = cartesian2spherical(x, y, z)
+        with open(f'{coord_dir}/true_r_theta_phi.txt', 'a') as f:
+            f.write(f'{r}, {theta}, {phi}, {locvol}\n')
+
     return
 
 
@@ -264,8 +285,8 @@ def main(trial_idx, fagn_idx):
         true_x_agn, true_y_agn, true_z_agn, true_rcom_agn, true_theta_agn, true_phi_agn = make_real_gw_positions(n=n_from_agn, kind='agn')
         true_x_alt, true_y_alt, true_z_alt, true_rcom_alt, true_theta_alt, true_phi_alt = make_real_gw_positions(n=n_from_alt, kind='alt')
 
-        obs_x_agn, obs_y_agn, obs_z_agn, sig_agn, v90_agn = make_observed_gw_positions(true_x_agn, true_y_agn, true_z_agn, true_rcom_agn, true_theta_agn, true_phi_agn)
-        obs_x_alt, obs_y_alt, obs_z_alt, sig_alt, v90_alt = make_observed_gw_positions(true_x_alt, true_y_alt, true_z_alt, true_rcom_alt, true_theta_alt, true_phi_alt)
+        obs_x_agn, obs_y_agn, obs_z_agn, sig_agn, v90_agn, sel_agn = make_observed_gw_positions(true_x_agn, true_y_agn, true_z_agn, true_rcom_agn, true_theta_agn, true_phi_agn)
+        obs_x_alt, obs_y_alt, obs_z_alt, sig_alt, v90_alt, sel_alt = make_observed_gw_positions(true_x_alt, true_y_alt, true_z_alt, true_rcom_alt, true_theta_alt, true_phi_alt)
     
             # tot += len(obs_x_agn) + len(obs_x_alt)
             # tagn += len(obs_x_agn) / len(true_x_agn)
@@ -276,12 +297,14 @@ def main(trial_idx, fagn_idx):
         # print(tagn / Nruns, 'average agn')
         # print(talt / Nruns, 'average alt')
         # sys.exit(1)
-        make_posterior_samples(trial_idx, fagn_idx, obs_x_agn, obs_y_agn, obs_z_agn, sig_agn, kind='agn')
-        save_coordinates(trial_idx, fagn_idx, true_x_agn, true_y_agn, true_z_agn, v90_agn, kind='agn')
+        make_posterior_samples(trial_idx, fagn_idx, obs_x_agn[sel_agn], obs_y_agn[sel_agn], obs_z_agn[sel_agn], sig_agn[sel_agn], kind='agn')
+        save_coordinates(trial_idx, fagn_idx, true_x_agn[sel_agn], true_y_agn[sel_agn], true_z_agn[sel_agn], v90_agn[sel_agn], kind='agn')
+        save_coordinates_nondetections(true_x_agn[~sel_agn], true_y_agn[~sel_agn], true_z_agn[~sel_agn], v90_agn[~sel_agn], kind='agn')
 
-        make_posterior_samples(trial_idx, fagn_idx, obs_x_alt, obs_y_alt, obs_z_alt, sig_alt, kind='alt')
-        save_coordinates(trial_idx, fagn_idx, true_x_alt, true_y_alt, true_z_alt, v90_alt, kind='alt')
-
+        make_posterior_samples(trial_idx, fagn_idx, obs_x_alt[sel_alt], obs_y_alt[sel_alt], obs_z_alt[sel_alt], sig_alt[sel_alt], kind='alt')
+        save_coordinates(trial_idx, fagn_idx, true_x_alt[sel_alt], true_y_alt[sel_alt], true_z_alt[sel_alt], v90_alt[sel_alt], kind='alt')
+        save_coordinates_nondetections(true_x_alt[~sel_alt], true_y_alt[~sel_alt], true_z_alt[~sel_alt], v90_alt[~sel_alt], kind='alt')
+        sys.exit(1)
         if MAKE_SKYMAPS:
             check_directory(SKYMAP_DIR)
             os.environ["OMP_NUM_THREADS"] = "1"  # Important for proper threading when making skymaps
@@ -291,9 +314,10 @@ def main(trial_idx, fagn_idx):
     else:
         true_x, true_y, true_z, true_rcom, true_theta, true_phi = make_real_gw_positions()
 
-        obs_x, obs_y, obs_z, sig, v90 = make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi)
-        make_posterior_samples(trial_idx, fagn_idx, obs_x, obs_y, obs_z, sig)
-        save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z, v90)
+        obs_x, obs_y, obs_z, sig, v90, sel = make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, true_phi)
+        make_posterior_samples(trial_idx, fagn_idx, obs_x[sel], obs_y[sel], obs_z[sel], sig[sel])
+        save_coordinates(trial_idx, fagn_idx, true_x[sel], true_y[sel], true_z[sel], v90[sel])
+        save_coordinates_nondetections(true_x[~sel], true_y[~sel], true_z[~sel], v90[~sel])
 
         if MAKE_SKYMAPS:
             check_directory(SKYMAP_DIR)
