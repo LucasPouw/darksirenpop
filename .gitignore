@@ -1,8 +1,6 @@
 output
 __pycache__
 
-agn_distribution
-salvage_later_on
 *.json
 *.pdf
 *.hdf5
