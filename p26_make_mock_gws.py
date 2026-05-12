@@ -60,8 +60,9 @@ Z_DIST_AGN = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * AGN_D
 Z_DIST_ALT = lambda z: time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z) / romb(time_dilation_correction(z) * z_cut(z, zcut=ZMAX) * merger_rate_madau_dickinson(z) * uniform_comoving_prior(z), dx=np.diff(z)[0])
 ####################################################
 
+ROOT = f'mock_gws_agndist_{AGNDIST}_ngw_{BATCH}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols'
 OUTPUT_DIR = f"output_run_{args.run_id}_fagn_{F_AGN_TRUE}"
-ID = f'mock_gws_agndist_{AGNDIST}_ngw_{BATCH}_zmax_{ZMAX}_zcut_{ZCUT}_LVKvols/{OUTPUT_DIR}'
+ID = f'{ROOT}/{OUTPUT_DIR}'
 SKYMAP_DIR = f'{ID}/skymaps'
 POST_SAMPS_DIR = f'{ID}/posterior_samples'
 TRUE_COORDS_DIR = f'{ID}/true_gw_coords'
@@ -161,8 +162,8 @@ def make_observed_gw_positions(true_x, true_y, true_z, true_rcom, true_theta, tr
     obs_rcom, _, _ = cartesian2spherical(obs_x, obs_y, obs_z)
     obs_redshift = fast_z_at_value(COSMO.comoving_distance, obs_rcom * u.Mpc)
     sel = obs_redshift < ZCUT
-    print(np.max(np.atleast_1d(true_rcom[sel])), 'max rcom')
-    print(true_rcom[sel], 'all rcom')
+    # print(np.max(np.atleast_1d(true_rcom[sel])), 'max rcom')
+    # print(true_rcom[sel], 'all rcom')
     print(f'Observed {np.sum(sel)} GWs. Efficiency: {np.sum(sel) / n}')
 
     # true_redshift = fast_z_at_value(COSMO.comoving_distance, true_rcom * u.Mpc)
@@ -218,7 +219,7 @@ def save_coordinates(trial_idx, fagn_idx, true_x, true_y, true_z, v90, kind=None
     for _, infile in enumerate(glob.glob(f'{post_dir}/gw_{trial_idx}_{fagn_idx}_*.h5')):
         gw_idx = infile[-8:-3]
         r, theta, phi = cartesian2spherical(true_x[int(gw_idx)], true_y[int(gw_idx)], true_z[int(gw_idx)])  # Could've just used spherical coordinates directly, oh well.
-        print(r, theta, phi, 'coords saved')
+        # print(r, theta, phi, 'coords saved')
         with open(f'{coord_dir}/true_r_theta_phi.txt', 'a') as f:
             f.write(f'{gw_idx}, {r}, {theta}, {phi}, {v90[int(gw_idx)]}\n')
     return
@@ -268,6 +269,7 @@ def make_skymaps(trial_idx, fagn_idx, kind=None):
 
 
 def main(trial_idx, fagn_idx):
+    # check_directory(ROOT)
     check_directory(POST_SAMPS_DIR)
     check_directory(TRUE_COORDS_DIR)
 
@@ -304,7 +306,7 @@ def main(trial_idx, fagn_idx):
         make_posterior_samples(trial_idx, fagn_idx, obs_x_alt[sel_alt], obs_y_alt[sel_alt], obs_z_alt[sel_alt], sig_alt[sel_alt], kind='alt')
         save_coordinates(trial_idx, fagn_idx, true_x_alt[sel_alt], true_y_alt[sel_alt], true_z_alt[sel_alt], v90_alt[sel_alt], kind='alt')
         save_coordinates_nondetections(true_x_alt[~sel_alt], true_y_alt[~sel_alt], true_z_alt[~sel_alt], v90_alt[~sel_alt], kind='alt')
-        sys.exit(1)
+
         if MAKE_SKYMAPS:
             check_directory(SKYMAP_DIR)
             os.environ["OMP_NUM_THREADS"] = "1"  # Important for proper threading when making skymaps
