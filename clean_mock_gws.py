@@ -9,6 +9,7 @@ from scipy.interpolate import CubicSpline
 import os, sys
 import json
 from pathlib import Path
+import h5py
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
@@ -18,6 +19,14 @@ from ligo.skymap import moc
 
 from redshift_utils import redshift_pdf_given_lumdist_pdf, fast_z_at_value
 from default_globals import COSMO
+
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--root", type=str, required=False)
+args = parser.parse_args()
+
+ROOT_DIRECTORY = args.root
 
 
 # def allsky_marginal_lumdist_distribution_old(dl_array, dP, norm, mu, sigma):
@@ -71,9 +80,8 @@ def allsky_marginal_lumdist_distribution(dl_array, dP, norm, mu, sigma):
 
 REAL_DATA = False
 
-ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols' #'/home/lucas/Documents/PhD/mock_gws_agndist_44.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
 TYPES = ['agn', 'alt']
-DIRECTORY_IDS = np.arange(145, 201, 1)
+DIRECTORY_IDS = np.arange(1, 201, 1)
 
 # DIRECTORY_ID = 'all'
 # SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
@@ -215,23 +223,108 @@ else:
                 os.makedirs(WRITE_DIR)
 
             gw_fnames = glob.glob(SKYMAP_DIR + 'skymap*.fits.gz')
-            for i, filename in tqdm(enumerate(gw_fnames), total=len(gw_fnames)):
-                
-                gw_id = filename[-13:-8]
 
-                # if gw_id != '00021':
+
+
+
+
+
+            false_h5_path = (
+                f'{WRITE_DIR}/'
+                f'zpost_gpmask_False_'
+                f'skymapcl_{SKYMAP_CL}_'
+                f'cmapnside_{CMAP_NSIDE}.h5'
+                )
+
+            true_h5_path = (
+                f'{WRITE_DIR}/'
+                f'zpost_gpmask_True_'
+                f'skymapcl_{SKYMAP_CL}_'
+                f'cmapnside_{CMAP_NSIDE}.h5'
+            )
+
+            with h5py.File(false_h5_path, 'w') as false_h5, \
+                h5py.File(true_h5_path, 'w') as true_h5:
+
+                for i, filename in tqdm(
+                    enumerate(gw_fnames),
+                    total=len(gw_fnames)
+                ):
+
+                    gw_id = filename[-13:-8]
+                    print(i, gw_id)
+
+                    try:
+                        (
+                            eval_ax,
+                            gw_redshift_posterior_marginalized_evaluated,
+                            gw_redshift_posterior_marginalized_cw_evaluated
+                        ) = evaluate_skymap(filename)
+
+                    except Exception as e:
+                        print(f'Error processing {filename}: {e}')
+                        continue
+
+                    # -----------------------------------------
+                    # Store in gpmask_False file
+                    # -----------------------------------------
+
+                    grp_false = false_h5.create_group(gw_id)
+
+                    grp_false.create_dataset(
+                        'eval_ax',
+                        data=eval_ax,
+                        compression='gzip'
+                    )
+
+                    grp_false.create_dataset(
+                        'posterior',
+                        data=gw_redshift_posterior_marginalized_evaluated,
+                        compression='gzip'
+                    )
+
+                    # -----------------------------------------
+                    # Store in gpmask_True file
+                    # -----------------------------------------
+
+                    grp_true = true_h5.create_group(gw_id)
+
+                    grp_true.create_dataset(
+                        'eval_ax',
+                        data=eval_ax,
+                        compression='gzip'
+                    )
+
+                    grp_true.create_dataset(
+                        'posterior',
+                        data=gw_redshift_posterior_marginalized_cw_evaluated,
+                        compression='gzip'
+                    )
+
+
+
+
+
+
+
+
+            # for i, filename in tqdm(enumerate(gw_fnames), total=len(gw_fnames)):
+                
+                # gw_id = filename[-13:-8]
+
+                # # if gw_id != '00021':
+                # #     continue
+
+                # try:
+                #     eval_ax, gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated = evaluate_skymap(filename)
+                # except Exception as e:
+                #     print(f'Error processing {filename}: {e}')
                 #     continue
 
-                try:
-                    eval_ax, gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated = evaluate_skymap(filename)
-                except Exception as e:
-                    print(f'Error processing {filename}: {e}')
-                    continue
-
-                # print(np.sum(np.isnan(gw_redshift_posterior_marginalized_evaluated)))
+                # # print(np.sum(np.isnan(gw_redshift_posterior_marginalized_evaluated)))
                 
-                np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_evaluated]))
-                np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_cw_evaluated]))
+                # np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_evaluated]))
+                # np.save(f'{WRITE_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{SKYMAP_CL}_cmapnside_{CMAP_NSIDE}', np.array([eval_ax, gw_redshift_posterior_marginalized_cw_evaluated]))
 
                 # if np.median(mu[skyprob_nonzero & pixprob_within_cl]) < 0:
                 #     HIGHRES_Z_AX = np.linspace(0, 3, 513)
