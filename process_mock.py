@@ -626,6 +626,8 @@ def make_mock_agn_catalog(fagn_idx, fagn_realized, cfg):
         gw_identifiers = sorted(np.array([get_id_from_fname(f) for f in gw_fnames_from_agn]).astype(int))
         true_sources = cfg.ALL_TRUE_SOURCES[np.searchsorted(cfg.TRUE_SOURCE_IDENTIFIERS, gw_identifiers)]  # Get all positions of GW-generating AGN
 
+        agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
+
     else:  # Folders are unique per realization, so get them on the fly
         output_directory = glob.glob(f'{cfg.MOCKDATA_ROOT}/output_run_{fagn_idx + 1}_*')[0]
 
@@ -639,27 +641,31 @@ def make_mock_agn_catalog(fagn_idx, fagn_realized, cfg):
             true_sources = np.atleast_2d(true_sources)
         else:
             true_sources = np.empty((0, 5))
-        # agn_true_sources = agn_true_sources[agn_true_sources[:,0].argsort()]
-        # agn_true_source_identifiers = agn_true_sources[:,0]
-        # true_sources = agn_true_sources[np.searchsorted(agn_true_source_identifiers, gw_identifiers)]
+        
+        agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
 
-    agn_ra, agn_dec, agn_rcom = true_sources[:,3], 0.5 * np.pi - true_sources[:,2], true_sources[:,1]
+        sources_of_gw_nondetections = np.genfromtxt(f'{output_directory}/true_gw_coords_nondetections/agn/true_r_theta_phi.txt', delimiter=',')
+        agn_ra_nd, agn_dec_nd, agn_rcom_nd = sources_of_gw_nondetections[:,2], 0.5 * np.pi - sources_of_gw_nondetections[:,1], sources_of_gw_nondetections[:,0]
+        
+        agn_ra = np.append(agn_ra, agn_ra_nd)
+        agn_dec = np.append(agn_dec, agn_dec_nd)
+        agn_rcom = np.append(agn_rcom, agn_rcom_nd)
 
     ### Complete catalog to preserve proper distribution, i.e., without overdensity below cfg.ZMAX due to adding GW-generating AGN first ###
     agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg=cfg)
     ############################################################################
-    print(len(agn_ra_complete), len(agn_ra))
-    plt.figure()
-    plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc), density=True, bins=15)
-    plt.plot(cfg.AGN_ZPRIOR_NORM_AX, cfg.AGN_ZPRIOR_FUNCTION(cfg.AGN_ZPRIOR_NORM_AX))
-    plt.show()
+    # print(len(agn_ra_complete), len(agn_ra))
+    # plt.figure()
+    # plt.hist(fast_z_at_value(COSMO.comoving_distance, agn_rcom * u.Mpc), density=True, bins=15)
+    # plt.plot(cfg.AGN_ZPRIOR_NORM_AX, cfg.AGN_ZPRIOR_FUNCTION(cfg.AGN_ZPRIOR_NORM_AX))
+    # plt.show()
     # sys.exit(1)
     
-    if cfg.ADD_NAGN_TO_CAT > n2complete:  # Add uncorrelated AGN as background
+    if cfg.ADD_NAGN_TO_CAT > n2complete + len(agn_ra_complete):  # Add uncorrelated AGN as background
         if cfg.VERBOSE:
-            print(f'Adding {cfg.ADD_NAGN_TO_CAT - n2complete} more AGN.')
+            print(f'Adding {cfg.ADD_NAGN_TO_CAT - n2complete - len(agn_ra_complete)} more AGN.')
 
-        agn_ra_complete, agn_dec_complete, agn_rcom_complete = add_agn_to_catalog(agn_ra_complete, agn_dec_complete, agn_rcom_complete, cfg.ADD_NAGN_TO_CAT - n2complete, cfg=cfg)
+        agn_ra_complete, agn_dec_complete, agn_rcom_complete = add_agn_to_catalog(agn_ra_complete, agn_dec_complete, agn_rcom_complete, cfg.ADD_NAGN_TO_CAT - n2complete - len(agn_ra_complete), cfg=cfg)
 
     if len(agn_rcom_complete) == 0:
         obs_agn_redshift_complete, agn_redshift_err_complete = np.empty_like(agn_rcom_complete), np.empty_like(agn_rcom_complete)

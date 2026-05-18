@@ -71,9 +71,9 @@ def allsky_marginal_lumdist_distribution(dl_array, dP, norm, mu, sigma):
 
 REAL_DATA = False
 
-ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_1.0_LVKvols' #'/home/lucas/Documents/PhD/mock_gws_agndist_44.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
+ROOT_DIRECTORY = '/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols' #'/home/lucas/Documents/PhD/mock_gws_agndist_44.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols'  #'/home/lucas/Documents/PhD/mock_gws_nonuniform_True_zmax_10_zcut_1_LVKvols'
 TYPES = ['agn', 'alt']
-DIRECTORY_IDS = np.arange(1, 201, 1)
+DIRECTORY_IDS = np.arange(145, 201, 1)
 
 # DIRECTORY_ID = 'all'
 # SKYMAP_DIR = f"./skymaps_{DIRECTORY_ID}/"
@@ -198,6 +198,7 @@ if REAL_DATA:
 else:
     
     for DIRECTORY_ID in DIRECTORY_IDS:
+        print(DIRECTORY_ID)
         # if DIRECTORY_ID != 130:
         #     continue
 
