@@ -4,7 +4,7 @@ import h5py
 from tqdm import tqdm
 import shutil
 
-ROOT = "/home/lucas/Documents/PhD/mock_gws_agndist_46.5_ngw_100000_zmax_10_zcut_0.3_LVKvols"
+ROOT = "/home/pouwlh1/darksirens/mock_gws_agndist_46.5_ngw_3000_zmax_10_zcut_1.0_LVKvols"
 TYPES = ["agn", "alt"]
 
 output_dirs = glob.glob(f"{ROOT}/output_run_*")

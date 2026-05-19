@@ -947,13 +947,10 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     average_redshift_completeness = romb(fc_of_z * normed_agn_background_dist * jacobian, dx=dz)
     average_completeness = average_redshift_completeness * sky_coverage
 
-
-    alpha_alt = 0.002918
-    z_arr, pdet = np.load('/home/lucas/Documents/PhD/darksirenpop/pdet_z_0.3.npy')
-    Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
+    alpha_alt = cfg.ALPHA_ALT
+    Pdet = cfg.PDET
     pdet = Pdet(cfg.Z_INTEGRAL_AX)
     pdet[np.isnan(pdet)] = 0
-
 
     # Get zprior normalizations, dealing with delta-function AGN posteriors (then assume_perfect_redshift == True) and empty catalogues (then total_n_agn == 0)
     if cfg.ASSUME_PERFECT_REDSHIFT:

@@ -8,7 +8,7 @@ from typing import Union
 
 from redshift_utils import merger_rate_madau_dickinson, merger_rate_uniform, z_cut, uniform_comoving_prior
 from astropy.cosmology import Planck15
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, CubicSpline
 
 
 def positive_redshift_prior(z):
@@ -56,21 +56,22 @@ class Config:
     BATCH: int = 150
     #########
 
-    OUTFILE: str = '/home/lucas/Documents/PhD/runs.json'
-    AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/darksirenpop/agn_distribution'
-    CATALOG_PATH: str = "/home/lucas/Documents/PhD/agn_data/Quaia_z15.csv"
-    POST_DIR = '/home/lucas/Documents/PhD/fagn_posteriors'
-    PLOT_DIR = '/home/lucas/Documents/PhD/darksirenpop/plots'
-    CMAP_PATH: str = "/home/lucas/Documents/PhD/completeness_map.fits"
+    OUTFILE: str = './runs.json'
+    AGN_DIST_DIR: str = './darksirenpop/agn_distribution'
+    CATALOG_PATH: str = "./agn_data/Quaia_z15.csv"
+    POST_DIR = './fagn_posteriors'
+    PLOT_DIR = './darksirenpop/plots'
+    CMAP_PATH: str = "./completeness_map.fits"
 
-    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
-    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_PEsamples_nocosmo.json'
-    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_skymaps_evaluated.json'
-    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/real_cw_skymaps_evaluated.json'
+    REAL_SKYMAP_JSON_PATH: str = './gw_data/real_skymaps.json'
+    REAL_SAMPLES_JSON_PATH: str = './gw_data/real_PEsamples_nocosmo.json'
+    REAL_ZPOSTS_JSON_PATH: str = './gw_data/real_skymaps_evaluated.json'
+    REAL_CW_ZPOSTS_JSON_PATH: str = './gw_data/real_cw_skymaps_evaluated.json'
 
     SKYMAP_CL: float = 0.999
     ZMIN: float = 1e-4
     ZMAX: float = 1.5
+    ZTHR: float = np.inf
     AGN_ZMAX: float = 10
     AGN_ZCUT: float = 1.5
 
@@ -281,6 +282,25 @@ class Config:
         # -------- AGN REDSHIFT PRIORS & INTEGRAL AXIS --------
         self.AGN_ZPRIOR_FUNCTION = self.get_agn_zprior()
         self.Z_INTEGRAL_AX = self.get_z_integral_ax()
+
+        # -------- GW SELECTION EFFECTS --------
+        if np.isinf(self.ZTHR):
+            self.ALPHA_ALT = 1
+            self.PDET = np.ones_like(self.Z_INTEGRAL_AX)
+        else:
+            if self.ZTHR == 0.3:
+                self.ALPHA_ALT = 0.00291838  # MC: 0.00302638
+                z_arr, pdet = np.load('./darksirenpop/pdet_z_0.3.npy')
+            
+            elif self.ZTHR == 1.0:
+                self.ALPHA_ALT = 0.0978773  # MC: 0.0990399
+                z_arr, pdet = np.load('./darksirenpop/pdet_z_1.0.npy')
+            
+            else:
+                sys.exit(f'GW detection threshold only has 0.3 and 1.0 implemented. Got: {self.ZTHR}')
+            
+            Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
+            self.PDET = Pdet
 
         # -------- GW FILES --------
         if self.REAL_DATA:

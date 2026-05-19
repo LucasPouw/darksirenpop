@@ -6,6 +6,7 @@ import h5py
 from astropy.table import Table
 import shutil
 import glob
+import time
 
 from utils import uniform_shell_sampler, spherical2cartesian, cartesian2spherical, sample_from_distribution, sample_spherical_angles
 from redshift_utils import fast_z_at_value, merger_rate_madau_dickinson, time_dilation_correction, uniform_comoving_prior, z_cut
@@ -27,7 +28,7 @@ parser.add_argument("--ngw", type=int, required=True)
 parser.add_argument("--zmin", type=float, required=False, default=1e-6)
 parser.add_argument("--zmax", type=float, required=False, default=10)
 parser.add_argument("--zcut", type=float, required=False, default=np.inf)
-parser.add_argument("--ncpu", type=int, required=False, default=os.cpu_count() - 2)
+parser.add_argument("--ncpu", type=int, required=False, default=os.environ['SLURM_JOB_CPUS_PER_NODE'])
 parser.add_argument("--npostsamps", type=int, required=False, default=int(5e3))
 parser.add_argument("--fagn", type=float, required=False, default=np.random.uniform())
 args = parser.parse_args()
@@ -44,7 +45,7 @@ F_AGN_TRUE = args.fagn  # Only used when AGNDIST != 'uniform'
 
 MAKE_SKYMAPS = True 
 FIXED_VOL = False  # float or False
-V90_CDF = '/home/lucas/Documents/PhD/darksirenpop/v90_cdf_LVK.npy'
+V90_CDF = './darksirenpop/v90_cdf_LVK.npy'
 
 ########## Nonuniform AGN distributions ##########
 AGN_DIST_DIR = './darksirenpop/agn_distribution'
@@ -258,12 +259,15 @@ def make_skymaps(trial_idx, fagn_idx, kind=None):
 
     for _, infile in enumerate(glob.glob(f'{post_dir}/gw_{trial_idx}_{fagn_idx}_*.h5')):
         print(f'Processing: {infile}')
+        t = time.time()
         gw_idx = infile[-8:-3]
         outfile = f'skymap_{trial_idx}_{fagn_idx}_{gw_idx}.fits.gz'
         print(f'Output: {sky_dir}/{outfile}')
 
         os.system(f"ligo-skymap-from-samples {infile} --fitsoutname {outfile} --outdir {sky_dir} --jobs {NCPU}")
 
+        print(f'That took {time.time() - t} s.\n')
+        
     os.system(f"rm -rf {sky_dir}/skypost.obj")
     return
 
