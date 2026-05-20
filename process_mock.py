@@ -497,6 +497,12 @@ def crossmatch(
     i = np.argsort(max_ipix)
     gw_pixidx_at_agn_locs = i[np.digitize(agn_pix, max_ipix[i]) - 1]  # Indeces that indicate skymap pixels that contain an AGN
 
+    del agn_theta
+    del agn_phi
+    del agn_ra
+    del agn_dec
+    del agn_pix
+
     dA = moc.uniq2pixarea(skymap_uniq)  # Pixel areas in sr
     dP = dP_dA * dA  # Dimensionless probability density in each pixel
     cumprob = np.cumsum(dP)
@@ -619,9 +625,33 @@ def crossmatch(
             # The population prior consists of AGN posteriors, modulated by redshift evolving merger rates (done later)
             sum_of_agn_posteriors = np.sum(agn_redshift_posteriors_in_pix, axis=0)
 
+            del agn_redshift_posteriors_in_pix
+
             # LOSzprior += sum_of_agn_posteriors
             integrand += dP_dA[gw_idx] * gw_redshift_posterior_in_pix * sum_of_agn_posteriors
 
+        del gw_redshift_posterior_in_allpix
+        del agn_redshift_posteriors_in_cl
+
+        # def print_var_sizes(namespace, top=None):
+        #     items = [
+        #         (name, type(val).__name__, sys.getsizeof(val))
+        #         for name, val in namespace.items()
+        #         if not name.startswith("__")
+        #     ]
+
+        #     items.sort(key=lambda x: x[2], reverse=True)
+
+        #     if top:
+        #         items = items[:top]
+
+        #     for name, typ, size in items:
+        #         size_mb = size / (1024 ** 2)
+        #         print(f"{name:20} {typ:15} {size_mb:8.3f} MB")
+        #     return
+
+        # print_var_sizes(locals())
+        # sys.exit(1)
 
         # t = time.time()
         # agn_pix_labels = np.searchsorted(unique_gw_pixidx_containing_agn,
