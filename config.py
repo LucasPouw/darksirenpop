@@ -3,10 +3,10 @@ import sys
 import glob
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union
 
-from redshift_utils import merger_rate_madau_dickinson, merger_rate_uniform, z_cut, uniform_comoving_prior
+from darksirenpop.utilities.redshift_utils import *
 from astropy.cosmology import Planck15
 from scipy.interpolate import interp1d, CubicSpline
 
@@ -23,6 +23,7 @@ class UniformComovingPrior:
         return uniform_comoving_prior(z, self.cosmo)
     
 
+### FIXME 2 Sept 2026: This is left over from old mock data analysis, make code only compatable with MOCKDATA_ROOT specified and remove all if MOCKDATA_ROOT == None blocks ###
 '''
 required paths that cannot be specified:
 self.SKYMAP_DIR = f"./skymaps_
@@ -36,7 +37,7 @@ self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_
 class Config:
     # ---------------- BASE INPUTS ----------------
     FLAT_GW_POSTERIORS: bool = False
-    VERBOSE: bool = True
+    VERBOSE: bool = False
     THREADING: bool = False
     N_WORKERS: int = 16
 
@@ -57,16 +58,16 @@ class Config:
     #########
 
     OUTFILE: str = './runs.json'
-    AGN_DIST_DIR: str = './darksirenpop/agn_distribution'
-    CATALOG_PATH: str = "./agn_data/Quaia_z15.csv"
+    AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/generated_data/em'
+    CATALOG_PATH: str = "/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv"
     POST_DIR = './fagn_posteriors'
     PLOT_DIR = './darksirenpop/plots'
-    CMAP_PATH: str = "./completeness_map.fits"
+    CMAP_PATH: str = "./completeness_map.fits"  # FIXME 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
 
-    REAL_SKYMAP_JSON_PATH: str = './gw_data/real_skymaps.json'
-    REAL_SAMPLES_JSON_PATH: str = './gw_data/real_PEsamples_nocosmo.json'
-    REAL_ZPOSTS_JSON_PATH: str = './gw_data/real_skymaps_evaluated.json'
-    REAL_CW_ZPOSTS_JSON_PATH: str = './gw_data/real_cw_skymaps_evaluated.json'
+    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
+    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'
+    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_evaluated.json'
+    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_cw_skymaps_evaluated.json'
 
     SKYMAP_CL: float = 0.999
     ZMIN: float = 1e-4
@@ -88,6 +89,12 @@ class Config:
 
     CORRECT_TIME_DILATION: bool = True
     MERGER_RATE: str = 'madau'
+    RATE_PARAMETERS: dict = field(default_factory=dict)
+
+    LABEL: str = 'none'
+
+    SNR_THR = 10
+    FAR_THR = 1
 
     # ---------------- MAGIC NUMBERS THAT SHOULDN'T NEED TO CHANGE EVER ----------------
     LINAX: bool = True
@@ -123,7 +130,7 @@ class Config:
     # FILE_TYPE: str | None = None
 
 
-    def get_z_integral_ax(self, at_least_N=1, npoints_min=1024):
+    def get_z_integral_ax(self, at_least_N_in_one_sigma=1, npoints_min=1024):
         """
         Compute the redshift integral axis based on AGN redshift errors.
         """
@@ -135,7 +142,7 @@ class Config:
         if smallest_error == 0:
             return np.linspace(self.ZMIN, self.ZMAX, npoints_min + 1)
         else:
-            npoints = int(2**np.ceil(np.log2(at_least_N * (self.ZMAX - self.ZMIN) / smallest_error)))
+            npoints = int(2**np.ceil(np.log2(at_least_N_in_one_sigma * (self.ZMAX - self.ZMIN) / smallest_error)))
             if self.VERBOSE:
                 print(f'Requiring at least {npoints} points in redshift integral axis to capture all AGN info '
                     f'for smallest error: {smallest_error}.')
@@ -208,8 +215,10 @@ class Config:
 
             fagns = []
             for i in range(self.N_REALIZATIONS):
-                # i = 199
-                output_dir = glob.glob(f'{self.MOCKDATA_ROOT}/output_run_{i+1}_*')[0]
+                try:
+                    output_dir = glob.glob(f'{self.MOCKDATA_ROOT}/output_run_{i+1}_*')[0]
+                except Exception as e:
+                    sys.exit(f'Problem loading file "{self.MOCKDATA_ROOT}/output_run_{i+1}_*". Error message: {e}')
                 fagn = output_dir.split('_')[-1]
                 fagns.append(fagn)
             self.TRUE_FAGNS = np.array(fagns)
@@ -244,16 +253,23 @@ class Config:
 
         # -------- WARNINGS --------
         if self.AGN_ZPRIOR and self.AGN_ZPRIOR[:4] != self.LUM_THRESH:
-            print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {self.LUM_THRESH}, '
-                  f'but there is also a data-informed completeness available for your chosen AGN redshift prior: {self.AGN_ZPRIOR}\n')
+            if self.VERBOSE:
+                print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {self.LUM_THRESH}, '
+                    f'but there is also a data-informed completeness available for your chosen AGN redshift prior: {self.AGN_ZPRIOR}\n')
 
         # -------- AGN ERRORS --------
         if self.AGN_ZERROR == 'quaia':
             self.quaia_errors = pd.read_csv(self.CATALOG_PATH)["redshift_quaia_err"]
 
-        # -------- MERGER RATE --------
+        # -------- MERGER RATE ALT GWS --------
         if self.MERGER_RATE == 'madau':
             self.MERGER_RATE_EVOLUTION = merger_rate_madau_dickinson
+            self.MERGER_RATE_KWARGS = self.RATE_PARAMETERS
+        elif self.MERGER_RATE == 'madau_lvk_MAP':
+            self.MERGER_RATE_EVOLUTION = merger_rate_madau_dickinson
+            self.MERGER_RATE_KWARGS = {'b': 3.027636508120894, 'c': 3.1826719462323076, 'd': 7.039509800907652}  # GWTC-5
+        elif self.MERGER_RATE == 'lowZ_sfr':
+            self.MERGER_RATE_EVOLUTION = merger_rate_lowZ_sfr
             self.MERGER_RATE_KWARGS = {}
         elif self.MERGER_RATE == 'uniform':
             self.MERGER_RATE_EVOLUTION = merger_rate_uniform
@@ -288,19 +304,22 @@ class Config:
             self.ALPHA_ALT = 1
             self.PDET = np.ones_like(self.Z_INTEGRAL_AX)
         else:
-            if self.ZTHR == 0.3:
-                self.ALPHA_ALT = 0.00291838  # MC: 0.00302638
-                z_arr, pdet = np.load('./darksirenpop/pdet_z_0.3.npy')
-            
-            elif self.ZTHR == 1.0:
-                self.ALPHA_ALT = 0.0978773  # MC: 0.0990399
-                z_arr, pdet = np.load('./darksirenpop/pdet_z_1.0.npy')
-            
-            else:
+            if self.ZTHR not in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
                 sys.exit(f'GW detection threshold only has 0.3 and 1.0 implemented. Got: {self.ZTHR}')
-            
-            Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
-            self.PDET = Pdet
+            else:
+                alpha_alt_dict = {0.3: 0.002918, 
+                                  0.4: 0.00693,
+                                  0.5: 0.01349,
+                                  0.6: 0.0231,
+                                  0.7: 0.03618,
+                                  0.8: 0.0529,
+                                  0.9: 0.0736,
+                                  1.0: 0.09788}
+                z_arr, pdet = np.load(f'./darksirenpop/pdet/pdet_z_{self.ZTHR}.npy')
+
+                self.ALPHA_ALT = alpha_alt_dict[self.ZTHR] #/ 1.02
+                Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
+                self.PDET = Pdet
 
         # -------- GW FILES --------
         if self.REAL_DATA:

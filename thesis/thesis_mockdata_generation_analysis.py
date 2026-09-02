@@ -1,13 +1,13 @@
 import numpy as np
-from utils import uniform_shell_sampler, make_nice_plots, spherical2cartesian, cartesian2spherical
+from darksirenpop.utilities.utils import uniform_shell_sampler, make_nice_plots, spherical2cartesian, cartesian2spherical
 from tqdm import tqdm
-from default_globals import *
+from darksirenpop.utilities.default_globals import *
 import astropy.units as u
 from scipy.integrate import quad, romb
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import traceback
 import sys, os
-from priors import *
+from darksirenpop.utilities.priors import *
 from scipy.stats import vonmises_fisher
 from scipy.optimize import root_scalar
 from scipy.special import erf
@@ -15,7 +15,7 @@ import h5py
 from astropy.table import Table
 import shutil
 import glob
-from redshift_utils import fast_z_at_value
+from darksirenpop.utilities.redshift_utils import fast_z_at_value
 
 make_nice_plots()
 

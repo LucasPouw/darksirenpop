@@ -86,6 +86,13 @@ def get_parser():
         elif get_origin(field_type) is Union:
             parser.add_argument(arg_name, type=str2any, default=None,
                                 help=f"(default={default_value})")
+        elif field_type == dict:
+            parser.add_argument(
+                arg_name,
+                type=json.loads,
+                default=None,
+                help=f"(default={default_value})"
+            )
         # For arrays or objects, accept string and parse later
         else:
             parser.add_argument(arg_name, type=str, default=None,

@@ -1,0 +1,204 @@
+from p26_control_room import *
+import glob
+from ligo.skymap.io.fits import read_sky_map
+from p26_crossmatch import crossmatch_p26 as crossmatch
+from p26_crossmatch import crossmatch_from_samples_p26
+import sys
+import json
+from scipy.integrate import simpson
+from darksirenpop.utilities.utils import get_run
+
+
+if not REAL_DATA:
+    sys.exit('Change flag REAL_DATA = True')
+
+if USE_SKYMAPS:
+    JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_skymaps.json'
+else:
+    JSON_PATH = '/home/lucas/Documents/PhD/gw_data/real_PEsamples_nocosmo.json'
+
+fagn_idx = 0
+with open(JSON_PATH, "r") as f:
+    gw_path_dict = json.load(f)
+gw_keys = list(gw_path_dict.keys())
+
+### Load Quaia and select sources outside the galactic plane and above the specified bolometric luminosity ###
+
+df = pd.read_csv(CATALOG_PATH)
+cols = ["redshift_quaia", "redshift_quaia_err", "ra", "dec", "b", "loglbol_corr"]
+data = df[cols]
+b              = data["b"].to_numpy()
+loglbol_corr   = data["loglbol_corr"].to_numpy()
+
+outside_galactic_plane = np.logical_or((b > 10), (b < -10))
+above_lbol_thresh = loglbol_corr >= float(LUM_THRESH)
+
+b                  = b[outside_galactic_plane & above_lbol_thresh]
+loglbol_corr       = loglbol_corr[outside_galactic_plane & above_lbol_thresh]
+agn_redshift       = data["redshift_quaia"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+agn_redshift_err   = data["redshift_quaia_err"].to_numpy()[outside_galactic_plane & above_lbol_thresh]
+agn_ra             = np.deg2rad( data["ra"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+agn_dec            = np.deg2rad( data["dec"].to_numpy()[outside_galactic_plane & above_lbol_thresh] )
+agn_rlum           = COSMO.luminosity_distance(agn_redshift).value
+
+agn_posterior_dset, _ = get_agn_posteriors(fagn_idx, agn_redshift, agn_redshift_err, label=LUM_THRESH, replace_old_file=False)
+_, c_per_zbin, completeness_map = make_incomplete_catalog(agn_ra, agn_dec, agn_rlum, agn_redshift)  # Quaia is already redshift incomplete, but convenient to get completeness maps this way
+
+
+if REDSHIFT_SELECTION_FUNCTION == 'binned':
+    if VERBOSE:
+        print(f'Using binned selection function from V25')
+    def redshift_completeness(z, completeness_zvals=c_per_zbin):
+        bin_idx = np.digitize(z, Z_EDGES) - 1
+        bin_idx[bin_idx == len(completeness_zvals)] = len(completeness_zvals) - 1
+        return completeness_zvals[bin_idx.astype(np.int32)]
+    
+elif REDSHIFT_SELECTION_FUNCTION == 'continuous':
+    filename = f'{AGN_DIST_DIR}/completeness_{LUM_THRESH}_{QLF}.npy'
+    if VERBOSE:
+        print(f'Loading continuous selection function calculated from QLF from file: {filename}')
+    z, fc_of_z = np.load(filename)
+    c_above_1 = fc_of_z > 1
+    fc_of_z[c_above_1] = 1.
+    redshift_completeness = interp1d(z, fc_of_z, bounds_error=False, fill_value=0)
+
+elif REDSHIFT_SELECTION_FUNCTION == 'empty':
+    if VERBOSE:
+        print(f'Empty catalog!')
+    redshift_completeness = lambda z: np.zeros_like(z)
+
+else:
+    sys.exit(f'Redshift selection function not recognized. Implemented: "binned", "continuous" or False. Got: {REDSHIFT_SELECTION_FUNCTION}')
+
+# plt.figure()
+# plt.plot(Z_INTEGRAL_AX, redshift_completeness(Z_INTEGRAL_AX))
+# plt.show()
+# sys.exit(1)
+
+
+### Calculate the integrals in the likelihood ###
+
+S_agn_incat_dict = {}
+S_agn_outofcat_dict = {}
+S_alt_dict = {}
+log_llh = np.zeros((len(LOG_LLH_X_AX), 1))
+for gw_idx, key in enumerate(gw_keys):
+    filename = gw_path_dict[key]
+    
+
+    # AGN_population_outofcat = time_dilation_correction(Z_INTEGRAL_AX) * AGN_ZPRIOR_FUNCTION(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX)
+    # norm = romb(AGN_population_outofcat, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # AGN_population_outofcat /= norm
+
+    # AGN_population_incat = time_dilation_correction(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX) * sum_of_posteriors_incomplete / redshift_population_prior_normalization
+    # norm = romb(AGN_population_incat, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # AGN_population_incat /= norm
+
+    # ALT_population = uniform_comoving_prior(Z_INTEGRAL_AX) * merger_rate(Z_INTEGRAL_AX, MERGER_RATE_EVOLUTION, **MERGER_RATE_KWARGS) * time_dilation_correction(Z_INTEGRAL_AX) * z_cut(Z_INTEGRAL_AX, zcut=ZMAX)
+    # norm = romb(ALT_population, dx=np.diff(Z_INTEGRAL_AX)[0])
+    # ALT_population /= norm
+
+    # fc = redshift_completeness(Z_INTEGRAL_AX)
+
+    # print(romb(fc * AGN_population_outofcat + (1 - fc) * AGN_population_incat, dx=np.diff(Z_INTEGRAL_AX)[0]))
+
+    # plt.figure()
+    # plt.plot(Z_INTEGRAL_AX, fc * AGN_population_outofcat + (1 - fc) * AGN_population_incat, label='AGN')
+    # plt.plot(Z_INTEGRAL_AX, AGN_population_incat, label='Incat')
+    # plt.plot(Z_INTEGRAL_AX, AGN_population_outofcat, label='AGN out of cat')
+    # plt.plot(Z_INTEGRAL_AX, fc, label='c(z)')
+    # plt.plot(Z_INTEGRAL_AX, ALT_population, label='Alt')
+    # plt.legend()
+    # plt.xlabel('Redshift')
+    # plt.ylabel('Probability density or completeness')
+    # plt.show()
+    # sys.exit(1)
+
+    if USE_SKYMAPS:
+        skymap = read_sky_map(filename, moc=True)
+        s_agn_incat, s_agn_outofcat, s_alt, = crossmatch(agn_posterior_dset=agn_posterior_dset,            # AGN data (needed when using AGN z-errors)
+                                                        sky_map=skymap,                                     # GW data
+                                                        completeness_map=completeness_map,                  # For getting the surveyed sky-area
+                                                        redshift_completeness=redshift_completeness,        # Callable: redshift selection function
+                                                        agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_lumdist=agn_rlum,                               # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift=agn_redshift,                          # AGN data (needed when neglecting AGN z-errors)
+                                                        agn_redshift_err=agn_redshift_err,                  # AGN data (needed when neglecting AGN z-errors)
+                                                        skymap_cl=SKYMAP_CL,                                # Only analyze AGN within this CL, only for code speed-up
+                                                        gw_zcut=ZMAX,                                       # GWs are not generated above ZMAX
+                                                        z_integral_ax=Z_INTEGRAL_AX,                        # Integrating the likelihood in redshift space
+                                                        assume_perfect_redshift=ASSUME_PERFECT_REDSHIFT,    # Integrating delta functions is handled differently
+                                                        background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                        merger_rate_func=MERGER_RATE_EVOLUTION,             # Merger rate can evolve
+                                                        linax=LINAX,                                        # Integration can be done in linspace or in geomspace
+                                                        correct_time_dilation=CORRECT_TIME_DILATION,
+                                                        **MERGER_RATE_KWARGS)                               # kwargs for  merger rate function
+    else:
+        with h5py.File(filename, 'r') as posterior_samples:
+            s_agn_incat, s_agn_outofcat, s_alt = crossmatch_from_samples_p26(posterior_samples=posterior_samples, 
+                                                                            z_integral_ax=Z_INTEGRAL_AX,
+                                                                            agn_posterior_dset=agn_posterior_dset,
+                                                                            agn_ra=agn_ra,
+                                                                            agn_dec=agn_dec,
+                                                                            completeness_map=completeness_map,
+                                                                            redshift_completeness=redshift_completeness,
+                                                                            gw_zcut=ZMAX,
+                                                                            merger_rate_func=MERGER_RATE_EVOLUTION,
+                                                                            correct_time_dilation=CORRECT_TIME_DILATION,
+                                                                            background_agn_distribution=AGN_ZPRIOR_FUNCTION,
+                                                                            linax=LINAX,
+                                                                            source_frame_mass_prior=SOURCE_FRAME_MASS_PRIOR,
+                                                                            run=get_run(key),
+                                                                            minpix=30,
+                                                                            skymap_cl=SKYMAP_CL,
+                                                                            minsamps=100,
+                                                                            **MERGER_RATE_KWARGS)
+    S_agn_incat_dict[key] = s_agn_incat
+    S_agn_outofcat_dict[key] = s_agn_outofcat
+    S_alt_dict[key] = s_alt
+
+    if VERBOSE:
+        print(f"\n({gw_idx+1}/{len(gw_keys)}) {key}")
+        print(s_agn_incat, s_agn_outofcat, s_alt)
+        if s_agn_incat + s_agn_outofcat - s_alt > 0:
+            print('!!! HIGHER AGN PROB !!!')            
+
+
+np.save(f'{POST_DIR}/s_agn_incat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_incat_dict)
+np.save(f'{POST_DIR}/s_agn_outofcat_dict_{FAGN_POSTERIOR_FNAME}.npy', S_agn_outofcat_dict)
+np.save(f'{POST_DIR}/s_alt_dict_{FAGN_POSTERIOR_FNAME}.npy', S_alt_dict)
+
+S_agn_incat = np.array([S_agn_incat_dict[key] for key in gw_keys])
+S_agn_outofcat = np.array([S_agn_outofcat_dict[key] for key in gw_keys])
+S_alt = np.array([S_alt_dict[key] for key in gw_keys])
+
+### Evaluate the likelihood ###
+loglike = np.log(SKYMAP_CL * LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
+
+nans = np.isnan(loglike)
+if np.sum(nans) != 0:
+    print('Got NaNs:')
+    arr = np.ones_like(LOG_LLH_X_AX)
+    print((arr[None,:] * S_agn_incat[:,None])[nans])
+    print((arr[None,:] * S_agn_outofcat[:,None])[nans])
+    print((arr[None,:] * S_alt[:,None])[nans])
+
+log_llh[:,fagn_idx] = np.sum(loglike, axis=0)  # Sum over all GWs
+if VERBOSE:
+    print('Done.')
+
+fname = f'{POST_DIR}/{FAGN_POSTERIOR_FNAME}'
+np.save(fname, log_llh)
+print(f'Posterior is located at: {fname}.npy')
+
+### Plot posterior ###
+posterior = log_llh
+posterior -= np.max(posterior)
+pdf = np.exp(posterior)
+norm = simpson(y=pdf, x=LOG_LLH_X_AX, axis=0)  # Simpson should be fine...
+pdf = pdf / norm
+plt.figure()
+plt.plot(LOG_LLH_X_AX, pdf)
+plt.savefig(f'{PLOT_DIR}/real_posterior_lumthresh_{LUM_THRESH}_perfectz_{ASSUME_PERFECT_REDSHIFT}_agnZprior_{AGN_ZPRIOR}.pdf', bbox_inches='tight')
+plt.show()
