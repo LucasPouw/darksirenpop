@@ -62,7 +62,7 @@ class Config:
     CATALOG_PATH: str = "/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv"
     POST_DIR = './fagn_posteriors'
     PLOT_DIR = './darksirenpop/plots'
-    CMAP_PATH: str = "./completeness_map.fits"  # FIXME 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
+    CMAP_PATH: str = "./darksirenpop/mock_analysis"  # FIXME 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
 
     REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
     REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'

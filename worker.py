@@ -4,7 +4,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.integrate import simpson
 import sys
-from process_mock import process_one_fagn
+from darksirenpop.likelihood import process_one_fagn
 
 
 def run_worker(cfg):

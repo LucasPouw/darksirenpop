@@ -2,8 +2,8 @@ from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap import moc
 
 from pathlib import Path
-from gw_selection_effects import alpha
 
+from darksirenpop.utilities.gw_selection_effects import alpha
 from darksirenpop.utilities.redshift_utils import *
 from darksirenpop.utilities.redshift_utils import _CHI_INTERP, _DL_INTERP
 from darksirenpop.utilities.utils import uniform_shell_sampler, sample_spherical_angles, truncnorm_pdf_inplace
@@ -140,7 +140,7 @@ def make_incomplete_catalog(agn_ra, agn_dec, obs_agn_rlum, obs_agn_redshift, cfg
 def compute_agn_posteriors_chunk(start, end, all_agn_z, all_agn_z_err, cfg, n_norm=100):
     '''
     Compute a chunk of AGN posteriors. This computation is vectorized.
-    AGN redshift posteriors are modelled as truncnorms on [0, inf) with a uniform-in-comoving-volume redshift prior.
+    AGN redshift posteriors are modelled as truncnorms on [0, inf) with a QLF-based redshift prior.
     The posteriors are then evaluated on Z_INTEGRAL_AX, which is what is necessary for the crossmatch.
     '''
     

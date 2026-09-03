@@ -9,8 +9,8 @@ from run import *
 from darksirenpop.utilities.redshift_utils import *
 from scipy.integrate import romb
 from darksirenpop.utilities.default_globals import *
-from gw_selection_effects import get_alpha_alt
-from process_mock import *
+from darksirenpop.utilities.gw_selection_effects import get_alpha_alt
+from darksirenpop.likelihood import *
 import emcee
 
 from multiprocessing import Pool, cpu_count

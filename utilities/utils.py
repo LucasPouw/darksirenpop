@@ -1,9 +1,9 @@
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import numpy as np
 import sys
-
-from scipy import stats
+import numpy as np
+from scipy.stats import norm
+from scipy.integrate import simpson
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 
 def log10addexp10(a, b):
@@ -84,7 +84,7 @@ def truncnorm_pdf_inplace(z, mu, sigma, zmin=0.0, out=None):
 
     # Normalization
     a = (zmin - mu) / sigma
-    Z = 1.0 - stats.norm.cdf(a)
+    Z = 1.0 - norm.cdf(a)
     out /= Z
 
     return out
@@ -118,6 +118,9 @@ def cartesian2spherical(x, y, z):
 
 
 def sigfig_str(x, sig=2):
+    '''
+    Format number with the requested amount of significant figures.
+    '''
     if x == 0:
         decimals = max(sig - 1, 0)
         return f"0.{'0' * decimals}" if decimals > 0 else "0"
@@ -180,13 +183,34 @@ def get_run(key):
     return run
 
 
+def get_pdfs(posteriors, integrate_axis):
+    '''
+    Go from unnormalized log-posteriors ln(p(f_agn | D)) to normalized posteriors p(f_agn | D).
+    Assumes variable ``posteriors`` is a 2D array where axis 0 is the f_agn axis, 
+    and axis 1 are posteriors from different runs.
+    '''
+    posteriors -= np.max(posteriors, axis=0)
+    pdf = np.exp(posteriors)
+    norms = simpson(y=pdf, x=integrate_axis, axis=0)  # Don't remember why I chose simpson
+    pdfs = pdf / norms
+    return pdfs
+
+
+def get_cdfs(posteriors):
+    posteriors -= np.max(posteriors, axis=0)
+    pdf = np.exp(posteriors)
+    cdfs = np.cumsum(pdf, axis=0)
+    cdfs /= np.max(cdfs, axis=0)
+    return cdfs
+
+
 if __name__ == '__main__':
 
     from darksirenpop.utilities.redshift_utils import *
     from scipy.interpolate import interp1d
     from scipy.integrate import romb
 
-    AGN_DIST_DIR = './darksirenpop/agn_distribution'
+    AGN_DIST_DIR = '/home/lucas/Documents/PhD/generated_data/em'
     AGN_ZPRIOR = '46.5_kulkarni'
     ZMAX = 3
 

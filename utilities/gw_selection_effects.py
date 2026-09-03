@@ -13,9 +13,10 @@ from scipy.stats import truncnorm
 # DEFINE THE REFERENCE POPULATION IN MASS AND SPIN
 ###################################################
 
-
-filename = "/home/lucas/Documents/PhD/popsummary_files/gwtc5_updated_madau_dickinson_mmax_mass_TwoPeakBrokenPowerLawSmoothedMassDistribution_redshift_MadauDickinsonRedshift_magnitude_iid_spin_magnitude_gaussian_tilt_iid_spin_orientation_popsummary_result.h5"
+filename = "/home/lucas/Documents/PhD/gw_data/popsummary_files/gwtc5_updated_madau_dickinson_mmax_mass_TwoPeakBrokenPowerLawSmoothedMassDistribution_redshift_MadauDickinsonRedshift_magnitude_iid_spin_magnitude_gaussian_tilt_iid_spin_orientation_popsummary_result.h5"
 result = PopulationResult(fname=filename)
+# rate = result.get_hyperparameter_samples(hyperparameters=['rate']).squeeze()  # 1/Gpc^3 1/year
+
 # MAP values of the hyperparameters
 df = pd.DataFrame(result.get_hyperparameter_samples(), columns=result.get_metadata("hyperparameters"))
 hyperparams = df.iloc[(df.log_likelihood + df.log_prior).idxmax()]

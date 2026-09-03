@@ -1,4 +1,6 @@
 """
+FROM GWCOSMO
+
 This module collects analytical and numerical probability density functions.
 """
 

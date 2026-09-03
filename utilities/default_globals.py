@@ -2,7 +2,6 @@
 Storing GLOBALS that are used in multiple notebooks
 '''
 
-import os, sys
 from astropy.cosmology import Planck15
 from astropy.constants import c
 import numpy as np
