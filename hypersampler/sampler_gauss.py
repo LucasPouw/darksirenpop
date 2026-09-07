@@ -5,7 +5,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import numpy as np
-from run import *
+from darksirenpop.run import *
 from darksirenpop.utilities.redshift_utils import *
 from scipy.integrate import romb
 from darksirenpop.utilities.default_globals import *
@@ -22,7 +22,7 @@ ncores = 5
 ndim = 4
 nwalkers = 100
 nsteps = 10000
-LTHRESH_STRING = '44.5'
+LTHRESH_STRING = '45.5'
 
 par_names = np.array(['b', 'c', 'd', 'fagn'])
 par_names_latex = np.array([r'$\gamma$', r'$1 + z_{\rm peak}$', r'$\alpha$', r'$f_{\rm agn}$'])

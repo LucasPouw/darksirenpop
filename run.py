@@ -1,6 +1,6 @@
 import argparse
-from config import Config
-from worker import run_worker
+from darksirenpop.config import Config
+from darksirenpop.worker import run_worker
 import numpy as np
 import json
 from pathlib import Path
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     fname = f'{cfg.POST_DIR}/{cfg.FAGN_POSTERIOR_FNAME}_{time_now}.npz'
     np.savez(fname, true_fagns=cfg.TRUE_FAGNS, log_likelihood=log_llh)
     metadata2json(fname, time_now, cfg)
-    print(f'Done. Posteriors are located at: {fname}\n')
+    print(f'Done. Posteriors are located at: {Path(fname).resolve()}\n')
 
     tfinal = time.time() - t
     print(f'That took {tfinal:.2f} seconds for {tfinal / cfg.N_REALIZATIONS:.2f} seconds/it.\n')

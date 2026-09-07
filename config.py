@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from typing import Union
+from pathlib import Path
 
 from darksirenpop.utilities.redshift_utils import *
 from astropy.cosmology import Planck15
@@ -63,6 +64,7 @@ class Config:
     POST_DIR = './fagn_posteriors'
     PLOT_DIR = './darksirenpop/plots'
     CMAP_PATH: str = "./darksirenpop/mock_analysis"  # FIXME 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
+    PDET_PATH: str = "/home/lucas/Documents/PhD/darksirenpop/mock/pdet"
 
     REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
     REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'
@@ -70,11 +72,11 @@ class Config:
     REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_cw_skymaps_evaluated.json'
 
     SKYMAP_CL: float = 0.999
-    ZMIN: float = 1e-4
-    ZMAX: float = 1.5
+    ZMIN: float = 1e-6
+    ZMAX: float = 10
     ZTHR: float = np.inf
     AGN_ZMAX: float = 10
-    AGN_ZCUT: float = 1.5
+    AGN_ZCUT: float = 3.0
 
     QLF: str = 'kulkarni'  # 'kulkarni' -- shenA and shenB not tested, QLF is only used when AGN_ZPRIOR is one of ['44.5', '45.0', '45.5', '46.0', '46.5']
     AGN_ZPRIOR: str = 'uniform_comoving_volume'  # Valid: 'positive_redshift', 'uniform_comoving_volume', '44.5', '45.0', '45.5', '46.0', '46.5'
@@ -176,6 +178,14 @@ class Config:
 
     # ---------------- FINALIZE ----------------
     def finalize(self):
+
+
+        fagn_posterior_dir = Path(self.POST_DIR)
+        if not fagn_posterior_dir.exists():
+            fagn_posterior_dir.mkdir(parents=True)
+            if self.VERBOSE:
+                print(f"\nCreated directory: {fagn_posterior_dir.resolve()}\n")
+
 
         if self.FLAT_GW_POSTERIORS:
             print('Forcing skymap CL to 1 since we test normalizations using flat GW posteriors.')
@@ -315,7 +325,7 @@ class Config:
                                   0.8: 0.0529,
                                   0.9: 0.0736,
                                   1.0: 0.09788}
-                z_arr, pdet = np.load(f'./darksirenpop/pdet/pdet_z_{self.ZTHR}.npy')
+                z_arr, pdet = np.load(f'{self.PDET_PATH}/pdet_z_{self.ZTHR}.npy')
 
                 self.ALPHA_ALT = alpha_alt_dict[self.ZTHR] #/ 1.02
                 Pdet = CubicSpline(z_arr, pdet, extrapolate=False)
