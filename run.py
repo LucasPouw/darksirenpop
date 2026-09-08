@@ -116,7 +116,7 @@ def config_to_dict(cfg):
 
 
 def metadata2json(fname, time_now, cfg):
-    output_file = Path(cfg.OUTFILE)
+    output_file = Path(cfg.METADATA_PATH)
 
     # Load existing data
     if output_file.exists():
@@ -163,6 +163,15 @@ if __name__ == "__main__":
     log_llh = run_worker(cfg)
 
     time_now = datetime.now().isoformat()
+
+    # Make sure directory for storing posteriors exists
+    fagn_posterior_dir = Path(cfg.POST_DIR)
+    if not fagn_posterior_dir.exists():
+        fagn_posterior_dir.mkdir(parents=True)
+        if cfg.VERBOSE:
+            print(f"\nCreated directory: {fagn_posterior_dir.resolve()}\n")
+
+    # Save posteriors and metadata (i.e., the config)
     fname = f'{cfg.POST_DIR}/{cfg.FAGN_POSTERIOR_FNAME}_{time_now}.npz'
     np.savez(fname, true_fagns=cfg.TRUE_FAGNS, log_likelihood=log_llh)
     metadata2json(fname, time_now, cfg)

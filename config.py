@@ -24,16 +24,6 @@ class UniformComovingPrior:
         return uniform_comoving_prior(z, self.cosmo)
     
 
-### FIXME 2 Sept 2026: This is left over from old mock data analysis, make code only compatable with MOCKDATA_ROOT specified and remove all if MOCKDATA_ROOT == None blocks ###
-'''
-required paths that cannot be specified:
-self.SKYMAP_DIR = f"./skymaps_
-self.SAMPLES_DIR = f"./posterior_samples_
-self.GW_ZPOST_DIR = f"./skymaps_evaluated_
-self.ALL_TRUE_SOURCES = np.genfromtxt(f'./true_r_theta_phi_
-'''
-
-
 @dataclass
 class Config:
     # ---------------- BASE INPUTS ----------------
@@ -41,35 +31,29 @@ class Config:
     VERBOSE: bool = False
     THREADING: bool = False
     N_WORKERS: int = 16
+    JOB_ID: int = 0  # Important when running on a cluster to avoid two files with the same filename
 
     REAL_DATA: bool = False
     USE_SKYMAPS: bool = True
     # SOURCE_FRAME_MASS_PRIOR: str | None = None
 
-    N_REALIZATIONS: int = 1  # Either sample this many GW data realizations on the fly or load this many from the provided MOCKDATA_ROOT
-    TRUE_FAGN: Union[float, str] = 0.5  # float or 'random'
+    N_REALIZATIONS: int = 1  # Load this many from the provided MOCKDATA_ROOT
+    MOCKDATA_ROOT: str = None  # Specify the root directory where all mock data is, generated with all desired properties
+    NGW: int = 150
 
-    ### Specify either the root directory where all mock data is, generated with all desired properties ###
-    MOCKDATA_ROOT: str = None
-    #########
-
-    ### Or resample a number of GWs (BATCH) from a big pool (specified by DIRECTORY_ID) according to a true f_agn (TRUE_FAGN) ###
-    DIRECTORY_ID: str = 'all'
-    BATCH: int = 150
-    #########
-
-    OUTFILE: str = './runs.json'
+    METADATA_PATH: str = './runs.json'
     AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/generated_data/em'
     CATALOG_PATH: str = "/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv"
     POST_DIR = './fagn_posteriors'
     PLOT_DIR = './darksirenpop/plots'
-    CMAP_PATH: str = "./darksirenpop/mock_analysis"  # FIXME 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
+    CMAP_PATH: str = "./darksirenpop/mock_analysis"  # TODO 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
     PDET_PATH: str = "/home/lucas/Documents/PhD/darksirenpop/mock/pdet"
 
-    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
-    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'
-    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_skymaps_evaluated.json'
-    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/gw_data/reweighted-gwtc5/real_cw_skymaps_evaluated.json'
+    REAL_POSTERIOR_JSON_DIR: str = '/home/lucas/Documents/PhD/generated_data/jsons'  # Store evaluated terms of the likelihood calculation in this directory
+    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
+    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'
+    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_evaluated.json'
+    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_cw_skymaps_evaluated.json'
 
     SKYMAP_CL: float = 0.999
     ZMIN: float = 1e-6
@@ -108,12 +92,7 @@ class Config:
 
     # ---------------- DERIVED VARIABLES ----------------
     # LOG_LLH_X_AX: np.ndarray | None = None
-    # ALL_TRUE_SOURCES: np.ndarray | None = None
-    # SKYMAP_DIR: str | None = None
-    # SAMPLES_DIR: str | None = None
     # AGN_ZPRIOR_NORM_AX: np.ndarray | None = None
-    # REALIZED_FAGNS: np.ndarray | None = None
-    # N_TRUE_FAGNS: int | None = None
     # TRUE_FAGNS: np.ndarray | None = None
 
     # COMDIST_MIN: float | None = None
@@ -127,9 +106,6 @@ class Config:
     # FAGN_POSTERIOR_FNAME: str | None = None
     # AGN_ZPRIOR_FUNCTION: callable | None = None
     # Z_INTEGRAL_AX: np.ndarray | None = None
-
-    # ALL_GW_FNAMES: np.ndarray | None = None
-    # FILE_TYPE: str | None = None
 
 
     def get_z_integral_ax(self, at_least_N_in_one_sigma=1, npoints_min=1024):
@@ -179,14 +155,6 @@ class Config:
     # ---------------- FINALIZE ----------------
     def finalize(self):
 
-
-        fagn_posterior_dir = Path(self.POST_DIR)
-        if not fagn_posterior_dir.exists():
-            fagn_posterior_dir.mkdir(parents=True)
-            if self.VERBOSE:
-                print(f"\nCreated directory: {fagn_posterior_dir.resolve()}\n")
-
-
         if self.FLAT_GW_POSTERIORS:
             print('Forcing skymap CL to 1 since we test normalizations using flat GW posteriors.')
             self.SKYMAP_CL = 1
@@ -202,27 +170,16 @@ class Config:
             sys.exit('Stop trying to break my code.')
 
         if (self.LUM_THRESH in ['44.5', '45.0', '45.5', '46.0', '46.5']) & (self.AGN_ZCUT < 1.3125):
-            raise ValueError(
-                f"V25 completeness bins require AGN_ZCUT to be higher than V25's highest z-bin, which is 1.3125. Got: {self.AGN_ZCUT}"
-            )
+            raise ValueError(f"V25 completeness bins require AGN_ZCUT to be higher than V25's highest z-bin, which is 1.3125. Got: {self.AGN_ZCUT}")
 
         # -------- ENVIRONMENT --------
         if self.THREADING:
             os.environ["OMP_NUM_THREADS"] = "1"
 
-        # -------- TRUE/REALIZED FAGNS --------
-        
-        if self.MOCKDATA_ROOT == None:
-
-            if self.TRUE_FAGN == 'random':
-                self.TRUE_FAGNS = np.random.uniform(size=self.N_REALIZATIONS)
-            else:
-                self.TRUE_FAGNS = np.tile(self.TRUE_FAGN, self.N_REALIZATIONS)
-
-            self.REALIZED_FAGNS = np.random.binomial(self.BATCH, self.TRUE_FAGNS) / self.BATCH
-
-        else:
-
+        # -------- TRUE FAGNS --------
+        if self.REAL_DATA:
+            self.TRUE_FAGNS = np.tile(0.5, self.N_REALIZATIONS)  # Placeholder, not used anywhere
+        else:  # Extract true injected f_agn from file name
             fagns = []
             for i in range(self.N_REALIZATIONS):
                 try:
@@ -232,8 +189,6 @@ class Config:
                 fagn = output_dir.split('_')[-1]
                 fagns.append(fagn)
             self.TRUE_FAGNS = np.array(fagns)
-
-            self.REALIZED_FAGNS = self.TRUE_FAGNS.copy()  # Only used to print value. I forgot to save the realized f_agn in this case, so just print the true value.
 
         # -------- DISTANCES --------
         self.COMDIST_MIN = self.COSMO.comoving_distance(self.ZMIN).value
@@ -261,15 +216,18 @@ class Config:
             self.AGN_ZPRIOR = f'{self.AGN_ZPRIOR}_{self.QLF}'
         self.AGN_ZPRIOR_NORM_AX = np.linspace(self.ZMIN, self.AGN_ZMAX, self.AGN_ZPRIOR_NORM_AX_N_POINTS)
 
-        # -------- WARNINGS --------
         if self.AGN_ZPRIOR and self.AGN_ZPRIOR[:4] != self.LUM_THRESH:
             if self.VERBOSE:
                 print(f'WARNING: You are performing an analysis assuming log10(Lbol) >= {self.LUM_THRESH}, '
                     f'but there is also a data-informed completeness available for your chosen AGN redshift prior: {self.AGN_ZPRIOR}\n')
 
-        # -------- AGN ERRORS --------
+        self.AGN_ZPRIOR_FUNCTION = self.get_agn_zprior()
+
+        # -------- AGN Z-ERRORS --------
         if self.AGN_ZERROR == 'quaia':
             self.quaia_errors = pd.read_csv(self.CATALOG_PATH)["redshift_quaia_err"]
+
+        self.Z_INTEGRAL_AX = self.get_z_integral_ax()
 
         # -------- MERGER RATE ALT GWS --------
         if self.MERGER_RATE == 'madau':
@@ -286,28 +244,9 @@ class Config:
             self.MERGER_RATE_KWARGS = {}
 
         # -------- POSTERIOR FILENAME --------
-        self.FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{self.REAL_DATA}'
+        self.FAGN_POSTERIOR_FNAME = f'p26_post_realdata_{self.REAL_DATA}_job{self.JOB_ID}'
         if self.REAL_DATA:
             self.FAGN_POSTERIOR_FNAME += f'_{self.LUM_THRESH}'
-        # if self.REAL_DATA:
-        #     self.FAGN_POSTERIOR_FNAME = (
-        #         f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
-        #         f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
-        #         f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}_CL_{self.SKYMAP_CL}'
-        #         f'_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
-        #     )
-        # else:
-        #     self.FAGN_POSTERIOR_FNAME = (
-        #         f'p26_post_realdata_{self.REAL_DATA}_useskymap_{self.USE_SKYMAPS}_rate_{self.MERGER_RATE}'
-        #         f'_timedil_{self.CORRECT_TIME_DILATION}_agnZprior_{self.AGN_ZPRIOR}_Lthresh_{self.LUM_THRESH}'
-        #         f'_perfz_{self.ASSUME_PERFECT_REDSHIFT}_GPmask_{self.MASK_GALACTIC_PLANE}'
-        #         f'_addAGN_{self.ADD_NAGN_TO_CAT}_nreal_{self.N_REALIZATIONS}_batch_{self.BATCH}_CL_{self.SKYMAP_CL}'
-        #         f'_agnZerr_{self.AGN_ZERROR}_gwZmax_{self.ZMAX}_agnZcut_{self.AGN_ZCUT}'
-        #     )
-
-        # -------- AGN REDSHIFT PRIORS & INTEGRAL AXIS --------
-        self.AGN_ZPRIOR_FUNCTION = self.get_agn_zprior()
-        self.Z_INTEGRAL_AX = self.get_z_integral_ax()
 
         # -------- GW SELECTION EFFECTS --------
         if np.isinf(self.ZTHR):
@@ -333,27 +272,10 @@ class Config:
 
         # -------- GW FILES --------
         if self.REAL_DATA:
-
             if self.USE_SKYMAPS:
                 self.JSON_PATH = self.REAL_SKYMAP_JSON_PATH
-            else:
+
+            # TODO: add likelihood calculation that directly uses GW samples, and no skymaps. 
+            else:  
                 raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
                 # self.JSON_PATH = self.REAL_SAMPLES_JSON_PATH
-        
-        else:
-            if self.MOCKDATA_ROOT == None:
-                self.SKYMAP_DIR = f"./skymaps_{self.DIRECTORY_ID}/"
-                self.SAMPLES_DIR = f"./posterior_samples_{self.DIRECTORY_ID}/"
-                self.GW_ZPOST_DIR = f"./skymaps_evaluated_{self.DIRECTORY_ID}/"
-
-                self.ALL_TRUE_SOURCES = np.genfromtxt(f'../true_r_theta_phi_{self.DIRECTORY_ID}.txt', delimiter=',')
-                self.ALL_TRUE_SOURCES = self.ALL_TRUE_SOURCES[self.ALL_TRUE_SOURCES[:,0].argsort()]
-                self.TRUE_SOURCE_IDENTIFIERS = self.ALL_TRUE_SOURCES[:,0]
-
-                if self.USE_SKYMAPS:
-                    self.ALL_GW_FNAMES = np.array(glob.glob(self.SKYMAP_DIR + 'skymap_*'))
-                    self.FILE_TYPE = 'skymap'
-                else:
-                    raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
-                    # self.ALL_GW_FNAMES = np.array(glob.glob(self.SAMPLES_DIR + 'gw_*'))
-                    # self.FILE_TYPE = 'samples'

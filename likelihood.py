@@ -4,18 +4,12 @@ from ligo.skymap import moc
 from pathlib import Path
 
 from darksirenpop.utilities.gw_selection_effects import alpha
-# from darksirenpop.utilities.redshift_utils import *
-# from darksirenpop.utilities.redshift_utils import _CHI_INTERP, _DL_INTERP
-# from darksirenpop.utilities.utils import uniform_shell_sampler, sample_spherical_angles, truncnorm_pdf_inplace
 from darksirenpop.utilities.mockdata_utils import *
 
-# from tqdm import tqdm
 import sys, os
 import h5py
 import healpy as hp
 import numpy as np
-# import pandas as pd
-# import matplotlib.pyplot as plt
 import astropy_healpix as ah
 import glob
 import json
@@ -23,10 +17,6 @@ import time
 
 from scipy.integrate import romb
 from scipy.interpolate import interp1d, CubicSpline
-# from scipy import stats
-
-# import astropy.units as u
-# from astropy.coordinates import SkyCoord
 
 
 def get_dz_and_jacobian(cfg):
@@ -57,37 +47,30 @@ def get_gw_zpost(filename, cfg, from_agn_hdf5=None, from_alt_hdf5=None, from_agn
     We make a distinction between the total redshift posterior and the posterior weighted by the survey footprint.
     '''
 
-    if cfg.REAL_DATA:
+    if cfg.REAL_DATA:  # TODO: Put evaluated sky maps for real data in single hdf5-file as well. Or else load the jsons outside the loop, to avoid opening and closing many times per run.
         with open(cfg.REAL_ZPOSTS_JSON_PATH, "r") as f:
             gw_zpost_path_dict = json.load(f)
             gw_zpost_path = gw_zpost_path_dict[gwkey]
-        
+
         with open(cfg.REAL_CW_ZPOSTS_JSON_PATH, "r") as f:
             gw_zpost_cw_path_dict = json.load(f)
             gw_zpost_cw_path = gw_zpost_cw_path_dict[gwkey]
-        
+
         z, p = np.load(gw_zpost_path)
         z_cw, p_cw = np.load(gw_zpost_cw_path)
 
     else:
-        gw_id = filename[-13:-8]
-
-        if cfg.MOCKDATA_ROOT == None:
-            sys.exit('Option outdated: cfg.MOCKDATA_ROOT == None. Run code from a mock data root directory!')
-            gw_zpost_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
-            gw_zpost_cw_path=f'{cfg.GW_ZPOST_DIR}zpost_{gw_id}_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.npy'
+        agn_or_alt = filename.split('/')[-2]
+        if agn_or_alt == 'agn':
+            zpost_file = from_agn_hdf5
+            cw_zpost_file = from_agn_cw_hdf5
+        elif agn_or_alt == 'alt':
+            zpost_file = from_alt_hdf5
+            cw_zpost_file = from_alt_cw_hdf5
         else:
-            agn_or_alt = filename.split('/')[-2]
+            sys.exit(f'Do not recognize subdirectory: {agn_or_alt}. Expected "agn" or "alt".')
 
-            if agn_or_alt == 'agn':
-                zpost_file = from_agn_hdf5
-                cw_zpost_file = from_agn_cw_hdf5
-            elif agn_or_alt == 'alt':
-                zpost_file = from_alt_hdf5
-                cw_zpost_file = from_alt_cw_hdf5
-            else:
-                sys.exit(f'Do not recognize subdirectory: {agn_or_alt}. Expected "agn" or "alt".')
-    
+        gw_id = filename[-13:-8]
         z = zpost_file[str(gw_id)]['eval_ax'][:]
         p = zpost_file[str(gw_id)]['posterior'][:]
         z_cw = cw_zpost_file[str(gw_id)]['eval_ax'][:]
@@ -102,12 +85,12 @@ def get_gw_zpost(filename, cfg, from_agn_hdf5=None, from_alt_hdf5=None, from_agn
     else:
         gwpost_interp_cw = CubicSpline(z_cw, p_cw, extrapolate=False)
         gw_redshift_posterior_marginalized_cw_evaluated = gwpost_interp_cw(cfg.Z_INTEGRAL_AX)
-        gw_redshift_posterior_marginalized_cw_evaluated[np.isnan(gw_redshift_posterior_marginalized_cw_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros'
+        gw_redshift_posterior_marginalized_cw_evaluated[np.isnan(gw_redshift_posterior_marginalized_cw_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
 
     return gw_redshift_posterior_marginalized_evaluated, gw_redshift_posterior_marginalized_cw_evaluated
 
 
-def crossmatch(
+def calculate_evidence(
             cfg,
             filename,
             agn_posterior_dset,
@@ -215,21 +198,6 @@ def crossmatch(
     # S_agn_outofcat = romb(y=(gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw_evaluated) / PEprior * p_rate_of_z_agn * normed_agn_background_dist * jacobian, dx=dz) / agn_population_prior_normalization   
     if S_agn_outofcat < 0:
         print(f'GOT NEGATIVE: {filename}, {S_agn_outofcat}')
-        # plt.figure()
-        # plt.plot(z, p)
-        # plt.show()
-        # plt.figure()
-        # plt.plot(cfg.Z_INTEGRAL_AX, fc_of_z)
-        # plt.show()
-        # plt.figure()
-        # plt.plot(cfg.Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_evaluated)
-        # plt.show()
-        # plt.figure()
-        # plt.plot(cfg.Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_cw_evaluated)
-        # plt.show()
-        # plt.figure()
-        # plt.plot(cfg.Z_INTEGRAL_AX, gw_redshift_posterior_marginalized_evaluated - fc_of_z * gw_redshift_posterior_marginalized_cw_evaluated)
-        # plt.show()
     
     # In-catalogue part
     if (nagn_within_cl == 0) or (nagn_norm == 0):
@@ -300,41 +268,6 @@ def crossmatch(
         del gw_redshift_posterior_in_allpix
         del agn_redshift_posteriors_in_cl
 
-        # def print_var_sizes(namespace, top=None):
-        #     items = [
-        #         (name, type(val).__name__, sys.getsizeof(val))
-        #         for name, val in namespace.items()
-        #         if not name.startswith("__")
-        #     ]
-
-        #     items.sort(key=lambda x: x[2], reverse=True)
-
-        #     if top:
-        #         items = items[:top]
-
-        #     for name, typ, size in items:
-        #         size_mb = size / (1024 ** 2)
-        #         print(f"{name:20} {typ:15} {size_mb:8.3f} MB")
-        #     return
-
-        # print_var_sizes(locals())
-        # sys.exit(1)
-
-        # t = time.time()
-        # agn_pix_labels = np.searchsorted(unique_gw_pixidx_containing_agn,
-        #                                 gw_pixidx_at_agn_locs_within_cl).astype(np.int64)
-        # dP_dA_per_agn  = dP_dA[unique_gw_pixidx_containing_agn[agn_pix_labels]].astype(np.float32)
-        # integrand_new = compute_integrand(
-        #     agn_redshift_posteriors_in_cl,
-        #     gw_redshift_posterior_in_allpix,
-        #     agn_pix_labels,
-        #     dP_dA_per_agn,
-        #     16385
-        # )
-        # print(np.sum(np.isclose(integrand, integrand_new)) == len(integrand))
-        # print(time.time() - t, 'new\n')
-
-
         # Normalize
         integrand /= nagn_norm
         # LOSzprior /= nagn_norm
@@ -366,14 +299,6 @@ def load_quaia(fagn_idx, cfg):
     fc_of_z[c_above_1] = 1.
     redshift_completeness = interp1d(z, fc_of_z, bounds_error=False, fill_value=0)
 
-    # plt.figure()
-    # plt.plot(cfg.Z_INTEGRAL_AX, np.sum(agn_posterior_dset, axis=0))
-    # plt.show()
-    
-    # plt.figure()
-    # plt.plot(cfg.Z_INTEGRAL_AX, redshift_completeness(cfg.Z_INTEGRAL_AX))
-    # plt.show()
-
     return agn_posterior_dset, agn_ra, agn_dec, agn_redshift, redshift_completeness
 
 
@@ -391,10 +316,7 @@ def prepare_functions(cfg, redshift_completeness):
     zrate_alt = merger_rate(cfg.Z_INTEGRAL_AX, cfg.MERGER_RATE_EVOLUTION, **cfg.MERGER_RATE_KWARGS)
     p_rate_of_z_alt = time_dilation * zrate_alt * zcut
 
-    PEprior_func = lambda z: uniform_comoving_prior(z, cosmo=cfg.COSMO)
-    # print('Testing unif source frame PEprior')
-    # PEprior_func = lambda z: uniform_source_frame(z)
-    # PEprior_func = lambda z: redshift_pdf_given_lumdist_pdf(z, lumdist_pdf=lambda dl: dl**2)
+    PEprior_func = lambda z: uniform_comoving_prior(z, cosmo=cfg.COSMO)  # PE prior hard-coded, but consistent with mock and real data TODO: generalize?
     PEprior = PEprior_func(cfg.Z_INTEGRAL_AX)
     
     dz, jacobian = get_dz_and_jacobian(cfg)
@@ -417,42 +339,53 @@ def prepare_functions(cfg, redshift_completeness):
     average_completeness = average_redshift_completeness * sky_coverage
 
     fc_and_rate_weighted_agn_background_dist = (1 - fc_of_z) * normed_agn_background_dist * p_rate_of_z_agn
-    return average_completeness, average_redshift_completeness, sky_coverage, fc_of_z, p_rate_of_z_agn, p_rate_of_z_alt, p_rate_of_z_agn_func, PEprior, PEprior_func, normed_agn_background_dist, fc_and_rate_weighted_agn_background_dist, jacobian, dz
+    return (average_completeness, 
+            average_redshift_completeness, 
+            sky_coverage, 
+            fc_of_z, 
+            p_rate_of_z_agn, 
+            p_rate_of_z_alt, 
+            p_rate_of_z_agn_func, 
+            PEprior, 
+            PEprior_func, 
+            normed_agn_background_dist, 
+            fc_and_rate_weighted_agn_background_dist, 
+            jacobian, 
+            dz)
 
 
-########################################################################################################################################################
+def calculate_normalizations(cfg, 
+                             agn_posterior_dset,
+                             obs_agn_redshift, 
+                             average_redshift_completeness,
+                             p_rate_of_z_agn,
+                             p_rate_of_z_agn_func,
+                             fc_and_rate_weighted_agn_background_dist,
+                             jacobian,
+                             dz
+                             ):
+    '''
+    There are three normalizations to calculate:
 
+    1. The number of AGN by which to normalize the in-catalog redshift prior
+    This is given by the number of AGN that could host a GW (AGN above ZMAX should not contribute to the z-prior, they have a weight of 0).
 
-def process_one_fagn(fagn_idx, fagn_realized, cfg):
-    
-    if cfg.REAL_DATA:
-        agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = load_quaia(fagn_idx, cfg)
+    2. The normalization of the full redshift population prior
+    This needs to be done numerically, because of the 1/(1 + z) pre-factor
 
-        with open(cfg.JSON_PATH, "r") as f:
-            gw_path_dict = json.load(f)
-        gw_keys = list(gw_path_dict.keys())
-        gw_fnames = [gw_path_dict[key] for key in gw_keys]
-    
-    else:
-        print(f'\nRealization {fagn_idx + 1}/{cfg.N_REALIZATIONS}: fagn = {fagn_realized}')
+    3. The normalization of the likelihood, due to the limited GW detection efficiency
+    The AGN-origin and alternative-origin GWs have different redshift distributions, and therefore different detection efficiencies.
+    '''
 
-        # Give every process a unique seed -- TODO: save the seeds somewhere
-        seed = np.random.SeedSequence().generate_state(1)[0]
-        np.random.seed(seed)
-        
-        gw_fnames, agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = make_mock_agn_catalog(fagn_idx, fagn_realized, cfg)
-
-
-    ### Prepare functions for in the likelihood ###
-    average_completeness, average_redshift_completeness, sky_coverage, fc_of_z, p_rate_of_z_agn, p_rate_of_z_alt, p_rate_of_z_agn_func, PEprior, PEprior_func, normed_agn_background_dist, fc_and_rate_weighted_agn_background_dist, jacobian, dz = prepare_functions(cfg, redshift_completeness)
-
-    if not cfg.REAL_DATA:  # Selection effects are done in post for real data
+    # In the real data case, the detection efficiency is calculated with an injection campaign
+    # For mock data, we use the Pdet function obtained from calc_mock_pdet.ipynb
+    if not cfg.REAL_DATA:  
         alpha_alt = cfg.ALPHA_ALT
         Pdet = cfg.PDET
         pdet = Pdet(cfg.Z_INTEGRAL_AX)
         pdet[np.isnan(pdet)] = 0
 
-    # Get zprior normalizations, dealing with delta-function AGN posteriors (then assume_perfect_redshift == True) and empty catalogues (then total_n_agn == 0)
+    # Get zprior normalizations, dealing with delta-function AGN posteriors (then assume_perfect_redshift == True) and empty catalogues (then nagn_norm == 0)
     if cfg.ASSUME_PERFECT_REDSHIFT:
         agn_below_zmax_mask = obs_agn_redshift < cfg.ZMAX
         agn_below_zmax = obs_agn_redshift[agn_below_zmax_mask]
@@ -487,29 +420,65 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
             if not cfg.REAL_DATA:
                 alpha_agn = romb(pdet * agn_population_prior_rate_weighted * jacobian, dx=dz) / agn_population_prior_normalization
     
-    if cfg.REAL_DATA:  # FIXME 26 Aug 2026: alpha_agn calculation seems wrong when changing ZMAX from 10 to 6, but only when using a catalogue, not when using empty catalogue.
-        if cfg.LUM_THRESH == 'inf' or cfg.AGN_ZCUT == 0:
+    if cfg.REAL_DATA:  # FIXME 26 Aug 2026: alpha_agn calculation seems wrong when changing ZMAX from 10 to 6, but only when using a catalogue, not when using empty catalogue. 
+                        # UPDATE 7 Sep 2026: Could have been issue with calculating alpha in my notebook, not in this code. TODO: Check if the bug is still there!
+        if cfg.LUM_THRESH == 'inf' or cfg.AGN_ZCUT == 0:  # The empty-catalogue case
             alpha_alt, alpha_agn, _ = alpha(fagn=cfg.LOG_LLH_X_AX, snr_thr=cfg.SNR_THR, far_thr=cfg.FAR_THR, agn_zpop=f'emptycat_{cfg.AGN_ZPRIOR.split('_')[0]}', 
-                                                    alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX)
+                                            alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX, agn_dist_dir=cfg.AGN_DIST_DIR)
         else:
             zpop = interp1d(cfg.Z_INTEGRAL_AX, agn_population_prior_rate_weighted / agn_population_prior_normalization, bounds_error=False, fill_value=0)
             alpha_alt, alpha_agn, _ = alpha(fagn=cfg.LOG_LLH_X_AX, snr_thr=cfg.SNR_THR, far_thr=cfg.FAR_THR, agn_zpop=zpop, 
-                                                    alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX)
-    # print(alpha_agn)
-    # alpha_alt = 0.0371501272264631  #0.03727143926754935 
-    # print(alpha_agn)
-    # alpha_agn = 0.00211864406779661  #0.0029973306518102484
+                                            alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX, agn_dist_dir=cfg.AGN_DIST_DIR)
 
-    # print(alpha_agn, 'ALPHA_AGN FROM THEORY')
-    # gw_fnames_temp, agn_ra_temp, agn_dec_temp, agn_rcom_temp = get_mock_gw_sources(fagn_idx, cfg)
-    # agn_z_temp = fast_z_at_value(cfg.COSMO.comoving_distance, agn_rcom_temp * u.Mpc)
-    # nagn_norm_temp = len(agn_z_temp)
-    # ppop_norm_temp = np.sum(p_rate_of_z_agn_func(agn_z_temp)) / nagn_norm_temp
-    # pdet_at_agnz_temp = Pdet(agn_z_temp)
-    # pdet_at_agnz_temp[np.isnan(pdet_at_agnz_temp)] = 0
-    # alpha_agn_temp = np.sum( pdet_at_agnz_temp * p_rate_of_z_agn_func(agn_z_temp) / nagn_norm_temp ) / ppop_norm_temp
-    # print(alpha_agn_temp, 'ALPHA_AGN FROM CATALOGUE')
-    # alpha_agn = alpha_agn_temp
+    return nagn_norm, agn_population_prior_normalization, alpha_agn, alpha_alt
+
+
+#############################################################
+####################### MAIN FUNCTION #######################
+#############################################################
+
+
+def process_one_fagn(fagn_idx, cfg):
+
+    ### Load the AGN catalogue ###
+    if cfg.REAL_DATA:
+        agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = load_quaia(fagn_idx, cfg)
+        with open(cfg.JSON_PATH, "r") as f:
+            gw_path_dict = json.load(f)
+        gw_keys = list(gw_path_dict.keys())
+        gw_fnames = [gw_path_dict[key] for key in gw_keys]
+    else:
+        print(f'\nRealization {fagn_idx + 1}/{cfg.N_REALIZATIONS}')
+        # Give every process a unique seed -- TODO: save the seeds somewhere
+        seed = np.random.SeedSequence().generate_state(1)[0]
+        np.random.seed(seed)
+        gw_fnames, agn_posterior_dset, agn_ra, agn_dec, obs_agn_redshift, redshift_completeness = make_mock_agn_catalog(fagn_idx, cfg)
+
+    ### Prepare functions for in the likelihood ###
+    (average_completeness, 
+     average_redshift_completeness, 
+     sky_coverage, 
+     fc_of_z, 
+     p_rate_of_z_agn, 
+     p_rate_of_z_alt, 
+     p_rate_of_z_agn_func, 
+     PEprior, 
+     PEprior_func, 
+     normed_agn_background_dist, 
+     fc_and_rate_weighted_agn_background_dist, 
+     jacobian, 
+     dz
+     ) = prepare_functions(cfg, redshift_completeness)
+
+    nagn_norm, agn_population_prior_normalization, alpha_agn, alpha_alt = calculate_normalizations(cfg, 
+                                                                                                    agn_posterior_dset,
+                                                                                                    obs_agn_redshift, 
+                                                                                                    average_redshift_completeness,
+                                                                                                    p_rate_of_z_agn,
+                                                                                                    p_rate_of_z_agn_func,
+                                                                                                    fc_and_rate_weighted_agn_background_dist,
+                                                                                                    jacobian,
+                                                                                                    dz)
 
     ### Calculate the integrals in the likelihood ###
     Ngws = len(gw_fnames)  # Due to selection effects not always the same number
@@ -517,109 +486,62 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
     S_agn_outofcat = np.zeros(Ngws)
     S_alt = np.zeros(Ngws)
 
-    # S_agn_incat_dict = {}
-    # S_agn_outofcat_dict = {}
-    # S_alt_dict = {}
-    # from_agn_dict = {}
-    
-    if not cfg.REAL_DATA:
+    if cfg.REAL_DATA:
+        hdf5_files = [None] * 4  # Evaluated sky maps still stored as separate .npz files for real data
+    else:
         subdir = '/'.join(gw_fnames[0].split('/')[:-3])
         gw_zpost_path_agn = f'{subdir}/skymaps_evaluated/agn/zpost_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.h5'
         gw_zpost_cw_path_agn = f'{subdir}/skymaps_evaluated/agn/zpost_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.h5'
         gw_zpost_path_alt = f'{subdir}/skymaps_evaluated/alt/zpost_gpmask_False_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.h5'
         gw_zpost_cw_path_alt = f'{subdir}/skymaps_evaluated/alt/zpost_gpmask_True_skymapcl_{cfg.SKYMAP_CL}_cmapnside_{cfg.CMAP_NSIDE}.h5'
-    
-    else:
-        # FIXME: Not used, but need a path to a hdf5 file to not error, yikesssssssssssss
-        gw_zpost_path_agn = '/home/lucas/Documents/PhD/gw_data/reweighted-o4a/samples/GW150914_095045.h5'
-        gw_zpost_cw_path_agn = '/home/lucas/Documents/PhD/gw_data/reweighted-o4a/samples/GW150914_095045.h5'
-        gw_zpost_path_alt = '/home/lucas/Documents/PhD/gw_data/reweighted-o4a/samples/GW150914_095045.h5'
-        gw_zpost_cw_path_alt = '/home/lucas/Documents/PhD/gw_data/reweighted-o4a/samples/GW150914_095045.h5'
+        hdf5_files = [h5py.File(path, "r") for path in (gw_zpost_path_agn, gw_zpost_path_alt, gw_zpost_cw_path_agn, gw_zpost_cw_path_alt)]
 
-    with h5py.File(gw_zpost_path_agn, "r") as from_agn_hdf5, \
-        h5py.File(gw_zpost_path_alt, "r") as from_alt_hdf5, \
-        h5py.File(gw_zpost_cw_path_agn, "r") as from_agn_cw_hdf5, \
-        h5py.File(gw_zpost_cw_path_alt, "r") as from_alt_cw_hdf5:
-
+    try:
+        from_agn_hdf5, from_alt_hdf5, from_agn_cw_hdf5, from_alt_cw_hdf5 = hdf5_files
         for gw_idx, filename in enumerate(gw_fnames):
-            # print(gw_idx, filename)
-            
+
             if cfg.REAL_DATA:
                 gwkey = gw_keys[gw_idx]
             else:
                 gwkey = get_id_from_fname(filename)
 
             if cfg.VERBOSE:
-                print(f'({gw_idx+1}/{len(gw_fnames)})')
+                print(f'({gw_idx+1}/{Ngws})')
 
             if cfg.USE_SKYMAPS:
-                sagn_incat, sagn_outofcat, salt = crossmatch(
-                                                            cfg=cfg,
-                                                            filename=filename,
-                                                            agn_posterior_dset=agn_posterior_dset,              # AGN data (needed when using AGN z-errors)
-                                                            agn_ra=agn_ra,                                      # AGN data (needed when neglecting AGN z-errors)
-                                                            agn_dec=agn_dec,                                    # AGN data (needed when neglecting AGN z-errors)
-                                                            agn_redshift=obs_agn_redshift,                       # AGN data (needed when neglecting AGN z-errors)
-                                                            p_rate_of_z_agn_func=p_rate_of_z_agn_func,
-                                                            p_rate_of_z_agn=p_rate_of_z_agn,
-                                                            p_rate_of_z_alt=p_rate_of_z_alt,
-                                                            PEprior_func=PEprior_func,
-                                                            PEprior=PEprior,
-                                                            fc_of_z=fc_of_z,
-                                                            average_completeness=average_completeness,
-                                                            sky_coverage=sky_coverage,
-                                                            normed_agn_background_dist=normed_agn_background_dist,
-                                                            nagn_norm=nagn_norm,
-                                                            agn_population_prior_normalization=agn_population_prior_normalization,
-                                                            from_agn_hdf5=from_agn_hdf5, 
-                                                            from_alt_hdf5=from_alt_hdf5, 
-                                                            from_agn_cw_hdf5=from_agn_cw_hdf5, 
-                                                            from_alt_cw_hdf5=from_alt_cw_hdf5,
-                                                            gwkey=gwkey
-                                                        )                      
+                sagn_incat, sagn_outofcat, salt = calculate_evidence(
+                                                                    cfg=cfg, filename=filename,
+                                                                    agn_posterior_dset=agn_posterior_dset, agn_ra=agn_ra, agn_dec=agn_dec,
+                                                                    agn_redshift=obs_agn_redshift, p_rate_of_z_agn_func=p_rate_of_z_agn_func,
+                                                                    p_rate_of_z_agn=p_rate_of_z_agn, p_rate_of_z_alt=p_rate_of_z_alt,
+                                                                    PEprior_func=PEprior_func, PEprior=PEprior, fc_of_z=fc_of_z,
+                                                                    average_completeness=average_completeness, sky_coverage=sky_coverage,
+                                                                    normed_agn_background_dist=normed_agn_background_dist, nagn_norm=nagn_norm,
+                                                                    agn_population_prior_normalization=agn_population_prior_normalization,
+                                                                    from_agn_hdf5=from_agn_hdf5, from_alt_hdf5=from_alt_hdf5,
+                                                                    from_agn_cw_hdf5=from_agn_cw_hdf5, from_alt_cw_hdf5=from_alt_cw_hdf5, gwkey=gwkey
+                                                                )
                 if np.isnan(sagn_incat) and np.isnan(sagn_outofcat) and np.isnan(salt):
-                    print(filename)
+                    print(f'All evidences are NaN: {filename}')
             else:
-                NotImplementedError('Only inference using GW skymaps is currently tested.')
-                # if cfg.VERBOSE:
-                #     print(f'Using GW posterior samples!')
-                # with h5py.File(filename, 'r') as posterior_samples:
-                #     sagn_incat, sagn_outofcat, salt = crossmatch_from_samples_p26(posterior_samples=posterior_samples, 
-                #                                                                   z_integral_ax=cfg.Z_INTEGRAL_AX,
-                #                                                                   agn_posterior_dset=agn_posterior_dset,
-                #                                                                   agn_ra=agn_ra,
-                #                                                                   agn_dec=agn_dec,
-                #                                                                   completeness_map=completeness_map,
-                #                                                                   redshift_completeness=redshift_completeness,
-                #                                                                   gw_zcut=cfg.ZMAX,
-                #                                                                   merger_rate_func=cfg.MERGER_RATE_EVOLUTION,
-                #                                                                   correct_time_dilation=cfg.CORRECT_TIME_DILATION,
-                #                                                                   background_agn_distribution=cfg.AGN_ZPRIOR_FUNCTION,
-                #                                                                   linax=cfg.LINAX,
-                #                                                                   minpix=30,
-                #                                                                   skymap_cl=cfg.SKYMAP_CL,
-                #                                                                   minsamps=100,
-                #                                                                   **cfg.MERGER_RATE_KWARGS)
-    
+                raise NotImplementedError('Only inference using GW sky maps is currently implemented.')
+
             S_agn_incat[gw_idx] = sagn_incat
             S_agn_outofcat[gw_idx] = sagn_outofcat
             S_alt[gw_idx] = salt
 
-            # S_agn_incat_dict[gwkey] = sagn_incat
-            # S_agn_outofcat_dict[gwkey] = sagn_outofcat
-            # S_alt_dict[gwkey] = salt
-
-            if cfg.REAL_DATA & (cfg.OUTFILE != 'none'):
-
+            if cfg.REAL_DATA & (cfg.REAL_POSTERIOR_JSON_DIR != 'none'):  # Store terms in likelihood in .json file, allows for per-event analysis in post.
                 if cfg.LUM_THRESH == 'inf' or cfg.AGN_ZCUT == 0:
-                    json_path = f'/home/lucas/Documents/PhD/generated_data/jsons/real_output_nocat_{cfg.MERGER_RATE}'
+                    suffix = '_nocat' 
                 else:
-                    json_path = f'/home/lucas/Documents/PhD/generated_data/jsons/real_output_{cfg.MERGER_RATE}'
+                    suffix = ''
+                json_path = f'{cfg.REAL_POSTERIOR_JSON_DIR}/realdata_posterior{suffix}_{cfg.MERGER_RATE}'
 
                 if cfg.LABEL != 'none':
-                    json_path = f'{json_path}_{cfg.LABEL}.json'
+                    suffix2 = f'_{cfg.LABEL}'
                 else:
-                    json_path = f'{json_path}.json'
+                    suffix2 = ''
+                json_path = f'{json_path}{suffix2}.json' 
 
                 output_file = Path(json_path)
 
@@ -629,24 +551,25 @@ def process_one_fagn(fagn_idx, fagn_realized, cfg):
                 else:
                     data = {}
 
-                if not cfg.AGN_ZPRIOR in data.keys():
+                if cfg.AGN_ZPRIOR not in data.keys():  # If this AGN subpopulation has not yet been analyzed, add it to the dictionary
                     data[cfg.AGN_ZPRIOR] = {}
-
-                datadict = data[cfg.AGN_ZPRIOR] 
-                datadict[gwkey]= {'S_agn_incat': sagn_incat, 'S_agn_outcat': sagn_outofcat, 'S_alt': salt, 'alpha_agn': alpha_agn, 'alpha_alt': alpha_alt}
+                datadict = data[cfg.AGN_ZPRIOR]  # Modify subdictionary
+                datadict[gwkey] = {'S_agn_incat': sagn_incat, 'S_agn_outcat': sagn_outofcat, 'S_alt': salt, 'alpha_agn': alpha_agn, 'alpha_alt': alpha_alt}
                 
                 output_file.write_text(json.dumps(data, indent=2))
 
-            # if int(key) in gw_identifiers:
-            #     from_agn_dict[key] = True
-            # else:
-            #     from_agn_dict[key] = False
-
             if cfg.VERBOSE:
-                print(f'S_alt: {salt}, S_incat: {sagn_incat}, S_outcat: {sagn_outofcat}, S_agn: {sagn_incat + sagn_outofcat}, negative values: {np.sum((cfg.LOG_LLH_X_AX * (sagn_incat + sagn_outofcat - salt) + salt) < 0)}\n')
-    
-    del agn_posterior_dset  # Free up the memory asap
+                print(f'S_alt: {salt}, S_incat: {sagn_incat}, S_outcat: {sagn_outofcat}, S_agn: {sagn_incat + sagn_outofcat}\n')
+                neg = np.sum((cfg.LOG_LLH_X_AX * (sagn_incat + sagn_outofcat - salt) + salt) < 0)
+                if neg != 0:
+                    print(f'Got {neg} negative values.')
+                
+    finally:  # If code crashes, still close hdf5 files
+        for hdf5_file in hdf5_files:
+            if hdf5_file is not None:
+                hdf5_file.close()
 
+    del agn_posterior_dset  # Free up the memory asap
     
     ### Evaluate the likelihood ###
     S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]

@@ -170,7 +170,7 @@ def get_normed_zpop(zpop_unnorm, norm_ax):
     return lambda z: zpop_unnorm(z) / romb(zpop_unnorm(norm_ax), dx=np.diff(norm_ax)[0])
 
 
-def get_agn_outofcat_pop(lum, zmax=10, agn_dist_dir='/home/lucas/Documents/PhD/darksirenpop/agn_distribution'):
+def get_agn_outofcat_pop(lum, agn_dist_dir, zmax):
     filename = f'{agn_dist_dir}/agn_redshift_pdf_{lum}_kulkarni.npy'
     z, n = np.load(filename)
     agndist = interp1d(z, n, bounds_error=False, fill_value=0)
@@ -195,7 +195,7 @@ def get_alt_pop(zmax=10, rate_model='madau', rate_parameters={}):
     return zpop_norm
 
 
-def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_mass_model, alt_rate_parameters):
     '''
     zpop is either a string ['alt', 'fromfile', 'emptycat_46.5'] or an array
     '''
@@ -206,7 +206,7 @@ def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, joint_mass_model=masspop_MAP
     elif zpop == 'alt':
         z_pop = get_alt_pop(zmax=zmax, rate_model=alt_rate_model, rate_parameters=alt_rate_parameters)
     elif zpop.split('_')[0] == 'emptycat':
-        z_pop = get_agn_outofcat_pop(lum=zpop.split('_')[1])
+        z_pop = get_agn_outofcat_pop(lum=zpop.split('_')[1], agn_dist_dir=agn_dist_dir, zmax=zmax)
     else:  # zpop is the filename
         z_temp, p_temp = np.load(zpop)
         zpop_unnorm = interp1d(z_temp, p_temp, bounds_error=False, fill_value=0)
@@ -256,12 +256,13 @@ with h5py.File(injections_path, 'r') as obj:
     lnprob = obj['events']['lnpdraw_mass1_source_mass2_source_redshift_spin1_magnitude_spin1_polar_angle_spin1_azimuthal_angle_spin2_magnitude_spin2_polar_angle_spin2_azimuthal_angle'][:]
 
 
-def get_alpha_alt(snr_thr, far_thr, alt_rate_model, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+def get_alpha_alt(snr_thr, far_thr, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
     sel = ((snr_inject > snr_thr) | (far_inject < far_thr))
     lnp_alt = ln_ppop(m1=mass1_source_inject, 
                       m2=mass2_source_inject, 
                       z=redshift_inject, 
                       spins=spins_inject, 
+                      agn_dist_dir=agn_dist_dir,
                       zpop='alt', 
                       alt_rate_model=alt_rate_model, 
                       joint_mass_model=joint_mass_model, 
@@ -271,12 +272,13 @@ def get_alpha_alt(snr_thr, far_thr, alt_rate_model, joint_mass_model=masspop_MAP
     return alpha_alt
 
 
-def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
     sel = ((snr_inject > snr_thr) | (far_inject < far_thr))
     lnp_agn = ln_ppop(m1=mass1_source_inject, 
                       m2=mass2_source_inject, 
                       z=redshift_inject, 
                       spins=spins_inject, 
+                      agn_dist_dir=agn_dist_dir,
                       zpop=agn_zpop, 
                       alt_rate_model=alt_rate_model, 
                       joint_mass_model=joint_mass_model, 
@@ -286,7 +288,20 @@ def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, joint_mass_model=m
     return alpha_agn
 
 
-def alpha(fagn, snr_thr, far_thr, agn_zpop, alt_rate_model, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
-    alpha_alt = get_alpha_alt(snr_thr, far_thr, alt_rate_model, joint_mass_model=joint_mass_model, alt_rate_parameters=alt_rate_parameters, zmax=zmax)
-    alpha_agn = get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, joint_mass_model=joint_mass_model, alt_rate_parameters=alt_rate_parameters, zmax=zmax)
+def alpha(fagn, snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+    alpha_alt = get_alpha_alt(snr_thr=snr_thr, 
+                              far_thr=far_thr, 
+                              alt_rate_model=alt_rate_model, 
+                              agn_dist_dir=agn_dist_dir, 
+                              joint_mass_model=joint_mass_model, 
+                              alt_rate_parameters=alt_rate_parameters, 
+                              zmax=zmax)
+    alpha_agn = get_alpha_agn(snr_thr=snr_thr, 
+                              far_thr=far_thr, 
+                              agn_zpop=agn_zpop, 
+                              alt_rate_model=alt_rate_model, 
+                              agn_dist_dir=agn_dist_dir, 
+                              joint_mass_model=joint_mass_model, 
+                              alt_rate_parameters=alt_rate_parameters,
+                              zmax=zmax)
     return alpha_alt, alpha_agn, fagn * alpha_agn + (1 - fagn) * alpha_alt

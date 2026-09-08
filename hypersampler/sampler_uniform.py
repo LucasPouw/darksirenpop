@@ -116,7 +116,7 @@ np.seterr(divide='ignore')
 zmodel = 'madau'
 thresh = f'{LTHRESH_STRING}_kulkarni'
 label = '_zleq3_final_kmax5_gwtc5_luminformed_smoothcorr'
-agn_json_path = f'/home/lucas/Documents/PhD/gw_data/real_output_{zmodel}{label}.json'
+agn_json_path = f'/home/lucas/Documents/PhD/generated_data/jsons/real_output_{zmodel}{label}.json'
 # json_emptycat = f'/home/lucas/Documents/PhD/gw_data/real_output_nocat_{zmodel}{label}.json'
 
 with open(agn_json_path, "r") as f:
@@ -173,7 +173,12 @@ def log_likelihood(theta):
     PEprior = PEprior_func(cfg.Z_INTEGRAL_AX)
     dz, jacobian = get_dz_and_jacobian(cfg)
 
-    alpha_alt = get_alpha_alt(snr_thr=cfg.SNR_THR, far_thr=cfg.FAR_THR, alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX)
+    alpha_alt = get_alpha_alt(snr_thr=cfg.SNR_THR, 
+                              far_thr=cfg.FAR_THR, 
+                              alt_rate_model=cfg.MERGER_RATE, 
+                              alt_rate_parameters=cfg.RATE_PARAMETERS, 
+                              zmax=cfg.ZMAX,
+                              agn_dist_dir=cfg.AGN_DIST_DIR)
     alpha_agn = GW_EVIDENCE_DICT[gw_keys[0]]['alpha_agn']  # Same for all events
 
 

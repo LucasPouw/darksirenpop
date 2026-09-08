@@ -28,8 +28,7 @@ for zcut in $zcuts; do
         --zmax 10 \
         --zthr 1.0 \
         --add_nagn_to_cat 10000 \
-        --outfile test.json
+        --metadata_path /home/lucas/Documents/PhD/generated_data/jsons/metadata_test.json \
+        --label testing
     done
 done
-
-# 350000

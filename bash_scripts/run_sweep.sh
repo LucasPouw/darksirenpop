@@ -12,11 +12,11 @@ for rate in 'madau'; do
     for agn_prior_lum in '46.5' '45.5' '44.5'; do
         echo $agn_prior_lum
 
-        for catalog_lum_thresh in $agn_prior_lum 'inf'; do
+        for catalog_lum_thresh in 'inf' $agn_prior_lum; do
             
             ~/Documents/PhD/.venv/bin/python darksirenpop/run.py \
-                --label 'zleq3_final_kmax5_gwtc5_luminformed_smoothcorr_MF' \
-                --rate_parameters '{"b": 2.6, "c": 3.2, "d": 6.2}' \
+                --label 'testing3' \
+                --rate_parameters '{"b": 3.3, "c": 2.55, "d": 6.1}' \
                 --catalog_path '/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv' \
                 --merger_rate $rate \
                 --threading False \
@@ -31,7 +31,7 @@ for rate in 'madau'; do
                 --agn_zcut 3.0 \
                 --zmin 0.000001 \
                 --zmax 10 \
-                --outfile realdata_zleq3_final_kmax5_gwtc5_luminformed_smoothcorr_MF.json \
+                --metadata_path /home/lucas/Documents/PhD/generated_data/jsons/metadata_test.json \
                 --real_data True
         done
     done

@@ -3,13 +3,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.integrate import simpson
-import sys
 from darksirenpop.likelihood import process_one_fagn
 
 
 def run_worker(cfg):
     """
-    Run the posterior computation over all realizations of f_agn.
+    Run the posterior computation over all data realizations.
     Supports multithreading.
     """
     
@@ -17,16 +16,13 @@ def run_worker(cfg):
 
     if cfg.THREADING:
         with ProcessPoolExecutor(max_workers=cfg.N_WORKERS) as executor:
-            futures = [
-                executor.submit(process_one_fagn, fagn_idx, fagn_realized, cfg)
-                for fagn_idx, fagn_realized in enumerate(cfg.REALIZED_FAGNS)
-            ]
+            futures = [executor.submit(process_one_fagn, fagn_idx, cfg) for fagn_idx in range(cfg.N_REALIZATIONS)]
             for future in tqdm(as_completed(futures)):
                 fagn_idx, llh = future.result()
                 log_llh[:, fagn_idx] = llh
     else:
-        for fagn_idx, fagn_realized in enumerate(cfg.REALIZED_FAGNS):
-            fagn_idx, llh = process_one_fagn(fagn_idx, fagn_realized, cfg)
+        for fagn_idx in range(cfg.N_REALIZATIONS):
+            fagn_idx, llh = process_one_fagn(fagn_idx, cfg)
             log_llh[:, fagn_idx] = llh
 
             # if cfg.VERBOSE:
@@ -44,6 +40,5 @@ def run_worker(cfg):
             #     plt.xlabel(r'$f_{\rm agn}$')
             #     plt.ylabel('Probability density')
             #     plt.show()
-            #     sys.exit('Exiting...')
 
     return log_llh
