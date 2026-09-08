@@ -34,8 +34,8 @@ class Config:
     NPOSTSAMPS: int = int(5e3)
     FAGN: float | None = None
     MAKE_SKYMAPS: bool = True
-    V90_CDF: str = '/home/lucas/Documents/PhD/generated_data/v90_cdf_LVK.npy'
-    AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/generated_data/em'
+    V90_CDF: str = V90_CDF_PATH
+    AGN_DIST_DIR: str = AGN_DIST_DIR
     VERBOSE: bool = False
 
     # Derived quantities
@@ -88,8 +88,8 @@ def parse_config(argv=None):
     parser.add_argument('--npostsamps', type=int, default=int(5e3))
     parser.add_argument('--fagn', type=float, default=None)
     parser.add_argument('--make-skymaps', action='store_true')
-    parser.add_argument('--v90-cdf', type=str, default='/home/lucas/Documents/PhD/darksirenpop/mock/v90_cdf_LVK.npy')
-    parser.add_argument('--agn-dist-dir', type=str, default='/home/lucas/Documents/PhD/generated_data/em')
+    parser.add_argument('--v90-cdf', type=str, default=V90_CDF_PATH)
+    parser.add_argument('--agn-dist-dir', type=str, default=AGN_DIST_DIR)
     args = parser.parse_args(argv)
 
     return Config(

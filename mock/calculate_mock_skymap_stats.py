@@ -2,10 +2,11 @@ import os
 import numpy as np
 import glob
 from tqdm import tqdm
+from darksirenpop.utilities.default_globals import *
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
-ROOT_DIRECTORY = '/home/lucas/Documents/PhD/generated_data/mock_gws/mock_gws_agndist_46.5_ngw_3000_zmax_10_zcut_1.0_LVKvols'
+ROOT_DIRECTORY = f'{MOCK_DATA_DIR}/mock_gws_agndist_46.5_ngw_3000_zmax_10_zcut_1.0_LVKvols'
 TYPES = ['agn', 'alt']
 DIRECTORY_IDS = np.arange(1, 201, 1)
 

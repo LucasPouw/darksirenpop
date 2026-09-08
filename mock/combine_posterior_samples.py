@@ -9,8 +9,9 @@ import glob
 import h5py
 from tqdm import tqdm
 import shutil
+from darksirenpop.utilities.default_globals import *
 
-ROOT = "/home/pouwlh1/darksirens/mock_gws_agndist_46.5_ngw_3000_zmax_10_zcut_1.0_LVKvols"
+ROOT = f"{MOCK_DATA_DIR}/mock_gws_agndist_46.5_ngw_3000_zmax_10_zcut_1.0_LVKvols"
 TYPES = ["agn", "alt"]
 
 output_dirs = glob.glob(f"{ROOT}/output_run_*")

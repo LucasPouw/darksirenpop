@@ -2,19 +2,26 @@ import h5py
 import numpy as np
 import pandas as pd
 import gc
+
 from scipy.integrate import romb
 from scipy.interpolate import interp1d
+from scipy.stats import truncnorm
+
 from popsummary import PopulationResult
+
+from darksirenpop.utilities.default_globals import *
 from darksirenpop.utilities.redshift_utils import *
 from darksirenpop.utilities.priors import BBH_broken_powerlaw_multi_peak_gaussian_m1m2
-from scipy.stats import truncnorm
+
+
+hyperposterior_path = LVK_HYPERPOSTERIOR_PATH
+injections_path = INJECTIONS_PATH
 
 ###################################################
 # DEFINE THE REFERENCE POPULATION IN MASS AND SPIN
 ###################################################
 
-filename = "/home/lucas/Documents/PhD/gw_data/popsummary_files/gwtc5_updated_madau_dickinson_mmax_mass_TwoPeakBrokenPowerLawSmoothedMassDistribution_redshift_MadauDickinsonRedshift_magnitude_iid_spin_magnitude_gaussian_tilt_iid_spin_orientation_popsummary_result.h5"
-result = PopulationResult(fname=filename)
+result = PopulationResult(fname=hyperposterior_path)
 # rate = result.get_hyperparameter_samples(hyperparameters=['rate']).squeeze()  # 1/Gpc^3 1/year
 
 # MAP values of the hyperparameters
@@ -226,9 +233,6 @@ def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_ma
 ###################################################
 # CALCULATE ALPHA WITH INJECTION CAMPAIGN
 ###################################################
-
-# injections_path = '/home/lucas/Documents/PhD/gw_data/injection_samples_essick/mixture-semi_o1_o2-real_o3_o4a-polar_spins_20250503134659UTC.hdf'  
-injections_path = '/home/lucas/Documents/PhD/gw_data/injection_samples_essick/mixture-semi_o1_o2-real_o3_o4a_o4b-polar_spins_20260410130052UTC-clipped.hdf'  # zenodo_get 19500052
 
 with h5py.File(injections_path, 'r') as obj:
     total_generated = obj.attrs['total_generated']

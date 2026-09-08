@@ -26,7 +26,7 @@ from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap import moc
 
 from darksirenpop.utilities.redshift_utils import redshift_pdf_given_lumdist_pdf, fast_z_at_value
-from darksirenpop.utilities.default_globals import COSMO
+from darksirenpop.utilities.default_globals import *
 
 import argparse
 
@@ -38,10 +38,7 @@ args = parser.parse_args()
 ROOT_DIRECTORY = args.root
 REAL_DATA = args.real_data
 
-SKYMAP_JSON_PATH = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'  # .json that contains paths to skymaps
-SKYMAP_EVALS_JSON_PATH = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_evaluated.json'  # .json that contains paths to redshift posteriors
-SKYMAP_CW_EVALS_JSON_PATH = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_cw_skymaps_evaluated.json'  # .json that contains paths to completeness-weighted redshift posteriors
-REALDATA_WRITE_DIR = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_evaluated/'  # Directory to store all evaluated redshift posteriors from real data
+REALDATA_WRITE_DIR = REWEIGHT_GWTC5_SKYMAP_EVALS  # Directory to store all evaluated redshift posteriors from real data
 
 TYPES = ['agn', 'alt']
 DIRECTORY_IDS = np.arange(0, 201, 1)  # If using mock data, check that this matches your sample

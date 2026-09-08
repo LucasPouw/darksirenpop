@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from typing import Union
-from pathlib import Path
 
+from darksirenpop.utilities.default_globals import *
 from darksirenpop.utilities.redshift_utils import *
 from astropy.cosmology import Planck15
 from scipy.interpolate import interp1d, CubicSpline
@@ -41,19 +41,18 @@ class Config:
     MOCKDATA_ROOT: str = None  # Specify the root directory where all mock data is, generated with all desired properties
     NGW: int = 150
 
-    METADATA_PATH: str = './runs.json'
-    AGN_DIST_DIR: str = '/home/lucas/Documents/PhD/generated_data/em'
-    CATALOG_PATH: str = "/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv"
-    POST_DIR = './fagn_posteriors'
-    PLOT_DIR = './darksirenpop/plots'
-    CMAP_PATH: str = "./darksirenpop/mock_analysis"  # TODO 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
-    PDET_PATH: str = "/home/lucas/Documents/PhD/darksirenpop/mock/pdet"
+    METADATA_PATH: str = f'{JSON_DIR}/metadata_default.json'
+    AGN_DIST_DIR: str = AGN_DIST_DIR
+    CATALOG_PATH: str = QUAIA_PATH
+    POST_DIR: str = FAGN_POST_DIR
+    PLOT_DIR: str = PLOT_DIR
+    CMAP_PATH: str = MOCK_DIR  # TODO 2 Sept 2026: completeness map not used, currently hard-coded the removal of AGN with |b| <= 10
+    PDET_PATH: str = PDET_DIR
 
-    REAL_POSTERIOR_JSON_DIR: str = '/home/lucas/Documents/PhD/generated_data/jsons'  # Store evaluated terms of the likelihood calculation in this directory
-    REAL_SKYMAP_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_reweight_gwtc5.json'
-    REAL_SAMPLES_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_PEsamples_reweight_gwtc5.json'
-    REAL_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_skymaps_evaluated.json'
-    REAL_CW_ZPOSTS_JSON_PATH: str = '/home/lucas/Documents/PhD/generated_data/gw/reweighted-gwtc5/real_cw_skymaps_evaluated.json'
+    REAL_POSTERIOR_JSON_DIR: str = JSON_DIR  # Store evaluated terms of the likelihood calculation in this directory
+    REAL_SKYMAP_JSON_PATH: str = SKYMAP_JSON_PATH
+    REAL_ZPOSTS_JSON_PATH: str = SKYMAP_EVALS_JSON_PATH
+    REAL_CW_ZPOSTS_JSON_PATH: str = SKYMAP_CW_EVALS_JSON_PATH
 
     SKYMAP_CL: float = 0.999
     ZMIN: float = 1e-6
@@ -278,4 +277,4 @@ class Config:
             # TODO: add likelihood calculation that directly uses GW samples, and no skymaps. 
             else:  
                 raise NotImplementedError('Only analysis of skymaps is fully implemented and tested.')
-                # self.JSON_PATH = self.REAL_SAMPLES_JSON_PATH
+            
