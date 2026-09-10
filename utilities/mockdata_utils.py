@@ -174,46 +174,48 @@ def get_id_from_fname(fname):
     return
 
 
-def fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg):
-    '''
-    If GWs are generated up to a redshift (ZMAX) that is lower than the maximum redshift of AGN (AGN_ZMAX),
-    there needs to be a population of non-host AGN in the catalog to preserve the overall AGN distribution.
-    This function does that.
-    '''
-    # if cfg.AGN_ZPRIOR == 'uniform_comoving_volume':
-    #     n2complete = int(round(len(agn_ra) * ( (cfg.AGN_COMDIST_MAX / cfg.COMDIST_MAX)**3 - 1)))
-    #     new_rcom, new_theta, new_phi = uniform_shell_sampler(cfg.COMDIST_MAX, cfg.AGN_COMDIST_MAX, n2complete)
-    # else:
+# 9 Sept 2026: This function is currently unused, but it may be at some point when AGN_ZMAX != ZMAX. But why would you do that?
+# def fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg):
+#     '''
+#     If GWs are generated up to a redshift (ZMAX) that is lower than the maximum redshift of AGN (AGN_ZMAX),
+#     there needs to be a population of non-host AGN in the catalog to preserve the overall AGN distribution.
+#     This function does that.
+#     '''
+#     # Uniform case can be done quicker, but never used so might as well remove clutter --> TODO
+#     # if cfg.AGN_ZPRIOR == 'uniform_comoving_volume':
+#     #     n2complete = int(round(len(agn_ra) * ( (cfg.AGN_COMDIST_MAX / cfg.COMDIST_MAX)**3 - 1)))
+#     #     new_rcom, new_theta, new_phi = uniform_shell_sampler(cfg.COMDIST_MAX, cfg.AGN_COMDIST_MAX, n2complete)
+#     # else:
 
-    # Compare total number of AGN expected up to AGN_COMDIST_MAX versus the total number we got up to COMDIST_MAX.
-    # Since we take the ratio, we don't need to calculate the actual number, only this integral which is proportional to it.
-    rcom_integrate_ax = np.linspace(cfg.COMDIST_MIN, cfg.AGN_COMDIST_MAX, 1024*4+1)
-    total = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, cfg.AGN_ZPRIOR_FUNCTION, cosmo=cfg.COSMO), dx=np.diff(rcom_integrate_ax)[0])
+#     # Compare total number of AGN expected up to AGN_COMDIST_MAX versus the total number we got up to COMDIST_MAX.
+#     # Since we take the ratio, we don't need to calculate the actual number, only this integral which is proportional to it.
+#     rcom_integrate_ax = np.linspace(cfg.COMDIST_MIN, cfg.AGN_COMDIST_MAX, 1024*4+1)
+#     total = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, cfg.AGN_ZPRIOR_FUNCTION, cosmo=cfg.COSMO), dx=np.diff(rcom_integrate_ax)[0])
 
-    rcom_integrate_ax = np.linspace(cfg.COMDIST_MIN, cfg.COMDIST_MAX, 1024*4+1)
-    current = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, cfg.AGN_ZPRIOR_FUNCTION, cosmo=cfg.COSMO), dx=np.diff(rcom_integrate_ax)[0])
+#     rcom_integrate_ax = np.linspace(cfg.COMDIST_MIN, cfg.COMDIST_MAX, 1024*4+1)
+#     current = romb(comdist_pdf_given_redshift_pdf(rcom_integrate_ax, cfg.AGN_ZPRIOR_FUNCTION, cosmo=cfg.COSMO), dx=np.diff(rcom_integrate_ax)[0])
 
-    n2complete = int(round(len(agn_ra) * ( total / current - 1)))
-    if n2complete != 0:
+#     n2complete = int(round(len(agn_ra) * ( total / current - 1)))
+#     if n2complete != 0:
 
-        new_theta, new_phi = sample_spherical_angles(n2complete)
+#         new_theta, new_phi = sample_spherical_angles(n2complete)
 
-        norm = romb(cfg.AGN_ZPRIOR_FUNCTION(cfg.AGN_ZPRIOR_NORM_AX) * (1 - z_cut(cfg.AGN_ZPRIOR_NORM_AX, zcut=cfg.ZMAX)), dx=np.diff(cfg.AGN_ZPRIOR_NORM_AX)[0])
-        target_population = lambda z: cfg.AGN_ZPRIOR_FUNCTION(z) * (1 - z_cut(z, zcut=cfg.ZMAX)) / norm
-        cdf = np.cumsum(target_population(cfg.AGN_ZPRIOR_NORM_AX))
-        cdf /= cdf[-1]
-        unif = np.random.rand(n2complete)
-        new_z = np.interp(unif, cdf, cfg.AGN_ZPRIOR_NORM_AX)
-        new_rcom = _CHI_INTERP(new_z)  #cfg.COSMO.comoving_distance(new_z).value
+#         norm = romb(cfg.AGN_ZPRIOR_FUNCTION(cfg.AGN_ZPRIOR_NORM_AX) * (1 - z_cut(cfg.AGN_ZPRIOR_NORM_AX, zcut=cfg.ZMAX)), dx=np.diff(cfg.AGN_ZPRIOR_NORM_AX)[0])
+#         target_population = lambda z: cfg.AGN_ZPRIOR_FUNCTION(z) * (1 - z_cut(z, zcut=cfg.ZMAX)) / norm
+#         cdf = np.cumsum(target_population(cfg.AGN_ZPRIOR_NORM_AX))
+#         cdf /= cdf[-1]
+#         unif = np.random.rand(n2complete)
+#         new_z = np.interp(unif, cdf, cfg.AGN_ZPRIOR_NORM_AX)
+#         new_rcom = _CHI_INTERP(new_z)  #cfg.COSMO.comoving_distance(new_z).value
 
-        agn_ra = np.append(agn_ra, new_phi)
-        agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
-        agn_rcom = np.append(agn_rcom, new_rcom)
+#         agn_ra = np.append(agn_ra, new_phi)
+#         agn_dec = np.append(agn_dec, np.pi * 0.5 - new_theta)
+#         agn_rcom = np.append(agn_rcom, new_rcom)
 
-    if cfg.VERBOSE:
-        print(f'Adding {n2complete} AGN above GW zmax ({cfg.ZMAX}) to get a catalog with distribution: {cfg.AGN_ZPRIOR}.')
+#     if cfg.VERBOSE:
+#         print(f'Adding {n2complete} AGN above GW zmax ({cfg.ZMAX}) to get a catalog with distribution: {cfg.AGN_ZPRIOR}.')
 
-    return agn_ra, agn_dec, agn_rcom, n2complete
+#     return agn_ra, agn_dec, agn_rcom, n2complete
 
 
 def add_agn_propto_z(agn_ra, agn_dec, agn_rcom, nsamps, cfg):
@@ -309,7 +311,12 @@ def make_mock_agn_catalog(fagn_idx, cfg):
     if cfg.AGN_COMDIST_MAX == cfg.COMDIST_MAX:
         agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = agn_ra, agn_dec, agn_rcom, 0
     else:
-        agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg=cfg)
+        raise ValueError(f'Currently only tested case for AGN_ZMAX = ZMAX, so all AGN can generate GWs.')
+
+        # TODO: Test code below before removing ValueError (but first really ask yourself why you would need that). 
+        # I think the AGN added here are not distributed as pi(z) / (1 + z), which is inconsistent with the GW-hosting AGN. 
+        # Honestly why did I ever code it this way.
+        # agn_ra_complete, agn_dec_complete, agn_rcom_complete, n2complete = fill_catalog_to_complete(agn_ra, agn_dec, agn_rcom, cfg=cfg)
 
     # Correct for overdensity caused by GW-hosting AGN. Currently, the catalog follows pi(z) / (1 + z), but that needs to be pi(z).
     # This may cause the total number of AGN to exceed the requested cfg.ADD_NAGN_TO_CAT, but oh well.

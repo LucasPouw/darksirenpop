@@ -204,6 +204,36 @@ def get_cdfs(posteriors):
     return cdfs
 
 
+def hdi(samples, cred_mass=0.9):
+	"""
+	Highest Density Interval from posterior samples.
+
+	Parameters
+	----------
+	samples : array-like
+		Posterior samples.
+	cred_mass : float
+		Desired probability mass (e.g. 0.9 for 90% HDI).
+
+	Returns
+	-------
+	hdi_low, hdi_high
+	"""
+	samples = np.asarray(samples)
+	samples = np.sort(samples)
+
+	n = len(samples)
+	interval_idx = int(np.floor(cred_mass * n))
+
+	if interval_idx < 1:
+		raise ValueError("Not enough samples")
+
+	widths = samples[interval_idx:] - samples[:n - interval_idx]
+	min_idx = np.argmin(widths)
+
+	return samples[min_idx], samples[min_idx + interval_idx]
+
+
 if __name__ == '__main__':
 
     from darksirenpop.utilities.redshift_utils import *

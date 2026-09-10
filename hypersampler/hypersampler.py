@@ -17,11 +17,8 @@ from darksirenpop.likelihood import get_dz_and_jacobian
 from darksirenpop.run import Config
 import argparse
 
+
 ndim = 4
-par_names = np.array(["b", "c", "d", "fagn"])
-par_names_latex = np.array([r"$\gamma$", r"$1 + z_{\rm peak}$", r"$\alpha$", r"$f_{\rm agn}$"])
-
-
 b_prior = [-10, 10]
 c_prior = [1, 3.5]
 d_prior = [0, 10]

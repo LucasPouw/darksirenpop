@@ -154,19 +154,19 @@ mu_spin = hyperparams.loc['mu_spin']
 sigma_spin = hyperparams.loc['sigma_spin']
 xi_spin = hyperparams.loc['xi_spin']
 
-spinpop_MAP = lambda s1phi, s2phi, s1r, s2r, cost1, cost2: log_joint_spin_pdf(
-                                                                                phi1=s1phi, 
-                                                                                phi2=s2phi,
-                                                                                chi1=s1r,
-                                                                                chi2=s2r,
-                                                                                cost1=cost1,
-                                                                                cost2=cost2,
-                                                                                mu_chi=mu_chi,
-                                                                                sigma_chi=sigma_chi,
-                                                                                mu_spin=mu_spin,
-                                                                                sigma_spin=sigma_spin,
-                                                                                xi_spin=xi_spin,
-                                                                            )
+spinpop_MAP_joint_prob_func = lambda s1phi, s2phi, s1r, s2r, cost1, cost2: log_joint_spin_pdf(
+                                                                                        phi1=s1phi, 
+                                                                                        phi2=s2phi,
+                                                                                        chi1=s1r,
+                                                                                        chi2=s2r,
+                                                                                        cost1=cost1,
+                                                                                        cost2=cost2,
+                                                                                        mu_chi=mu_chi,
+                                                                                        sigma_chi=sigma_chi,
+                                                                                        mu_spin=mu_spin,
+                                                                                        sigma_spin=sigma_spin,
+                                                                                        xi_spin=xi_spin,
+                                                                                    )
 
 
 ###################################################
@@ -203,9 +203,6 @@ def get_alt_pop(zmax=10, rate_model='madau', rate_parameters={}):
 
 
 def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_mass_model, alt_rate_parameters):
-    '''
-    zpop is either a string ['alt', 'fromfile', 'emptycat_46.5'] or an array
-    '''
 
     ### Redshift ###
     if callable(zpop):
@@ -222,12 +219,9 @@ def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_ma
     ### Masses ###
     m_pop = lambda primary, secondary: joint_mass_model.joint_prob(primary, secondary).detach().cpu().numpy()
 
-    # ### Spins ###
-    # s1_pop = lambda a, theta, phi: np.sin(theta) / (4 * np.pi) 
-    # s2_pop = lambda a, theta, phi: np.sin(theta) / (4 * np.pi)
-    # s_pop = lambda a1, theta1, phi1, a2, theta2, phi2: s1_pop(a1, theta1, phi1) * s2_pop(a2, theta2, phi2)
-
-    return np.log(z_pop(z)) + np.log(m_pop(m1, m2))  # TODO: spins
+    ### Spins ###
+    # TODO: add something like + np.log(spinpop_MAP_joint_prob_func(*spins))
+    return np.log(z_pop(z)) + np.log(m_pop(m1, m2))
 
 
 ###################################################
