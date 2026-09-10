@@ -1,3 +1,10 @@
+############################################################################################################
+# This code was made very quickly and inefficiently to get some samples running. It contains a memory leak
+# and it recomputes way more stuff than necessary during each MCMC step. However, it was good enough for a
+# search over a small parameter space. FIXME!
+############################################################################################################
+
+
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -121,12 +128,14 @@ def log_likelihood(theta, LTHRESH_STRING, GW_EVIDENCE_DICT, return_spline=False)
     PEprior = PEprior_func(cfg.Z_INTEGRAL_AX)
     dz, jacobian = get_dz_and_jacobian(cfg)
 
+    # FIXME: This can probably be pre-computed and interpolated, and it might be the cause of the memory leak!
     alpha_alt = get_alpha_alt(snr_thr=cfg.SNR_THR,
                               far_thr=cfg.FAR_THR,
                               alt_rate_model=cfg.MERGER_RATE,
                               alt_rate_parameters=cfg.RATE_PARAMETERS,
                               zmax=cfg.ZMAX,
                               agn_dist_dir=cfg.AGN_DIST_DIR)
+    
     alpha_agn = GW_EVIDENCE_DICT[gw_keys[0]]["alpha_agn"]  # Same for all events
 
     ### Calculate the integrals in the likelihood ###
@@ -199,7 +208,7 @@ def log_probability(theta, log_prior, LTHRESH_STRING, GW_EVIDENCE_DICT, return_s
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ncpu", type=int, required=True)
-    parser.add_argument("--prior", type=str, required=True, choices=["uniform", "gaussian"])
+    parser.add_argument("--prior", type=str, required=True, choices=["uniform", "gaussian", "test"])
     parser.add_argument("--lthresh", type=str, required=True, choices=["44.5", "45.5", "46.5"])
     parser.add_argument("--nwalkers", type=int, required=False, default=100)
     parser.add_argument("--nsteps", type=int, required=False, default=10000)
@@ -228,6 +237,15 @@ def main():
     elif PRIOR == "gaussian":
         log_prior = log_prior_gauss
         backend, pos = init_gaussian_sampler(filename=f"{GENERATED_DATA_DIR}/alt_origin_hyperparameters/sampler_gauss_priors_withcat_{LTHRESH_STRING}.h5", nwalkers=nwalkers)
+    elif PRIOR == "test":
+        log_prior = log_prior_uniform
+        backend = emcee.backends.HDFBackend(filename=f"/home/lucas/Documents/PhD/darksirenpop/hypersampler/testing_sampler.h5")  # Run backend.reset(nwalkers, ndim) to empty file
+        # Initial positions
+        pos = np.zeros((nwalkers, ndim))
+        pos[:, 0] = np.random.uniform(b_prior[0], b_prior[1], nwalkers)
+        pos[:, 1] = np.random.uniform(c_prior[0], c_prior[1], nwalkers)
+        pos[:, 2] = np.random.uniform(d_prior[0], d_prior[1], nwalkers)
+        pos[:, 3] = np.random.uniform(fagn_prior[0], fagn_prior[1], nwalkers)
     else:
         raise ValueError(f"Did not recognize prior: {PRIOR}. Also, how did you get past the parser?")
 
