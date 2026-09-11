@@ -1,0 +1,999 @@
+# darksirenpop
+
+Joint electromagnetic (EM) + gravitational-wave (GW) population inference for distinguishing two BBH (binary black-hole) origin populations.
+
+The central question addressed by this repository is whether a detected GW population is more consistent with an **AGN-associated population** or an **alternative/background population**, using an incomplete AGN catalog as the electromagnetic counterpart information. The inference is performed over the AGN fraction, \(f_{\rm AGN}\), while accounting for AGN redshift uncertainty, catalog completeness, GW sky localization, GW distance/redshift posteriors, and GW selection effects.
+
+> **Repository status:** research code / analysis pipeline. The repository is organized around the author's data layout and contains hard-coded local paths in `utilities/default_globals.py` and several analysis scripts. Reproducibility therefore requires adapting the data paths and, for some workflows, the scripts themselves.
+
+## Contents
+
+- [What the pipeline does](#what-the-pipeline-does)
+- [Inference model](#inference-model)
+- [Repository layout](#repository-layout)
+- [Requirements](#requirements)
+- [Data and path configuration](#data-and-path-configuration)
+- [Installation](#installation)
+- [Running the main inference](#running-the-main-inference)
+- [Mock-data workflow](#mock-data-workflow)
+- [Real-data workflow](#real-data-workflow)
+- [Hyperparameter sampling](#hyperparameter-sampling)
+- [Parameter sweeps](#parameter-sweeps)
+- [Outputs](#outputs)
+- [Important configuration options](#important-configuration-options)
+- [Implementation notes](#implementation-notes)
+- [Known limitations and caveats](#known-limitations-and-caveats)
+- [Development and analysis notebooks](#development-and-analysis-notebooks)
+- [Citation](#citation)
+- [License](#license)
+
+## What the pipeline does
+
+At a high level, `darksirenpop` implements the following chain:
+
+1. **Define cosmology and population models.**
+   - Default cosmology is Planck15 cloned to \(H_0=67.9\) km/s/Mpc and \(\Omega_m=0.3065\).
+   - The alternative GW population can follow a Madau--Dickinson merger-rate evolution, an LVK-MAP Madau--Dickinson model, a low-metallicity SFR model, or a uniform-in-redshift model.
+   - AGN redshift populations can be uniform in comoving volume, positive-redshift-only, or derived from luminosity-threshold/QSO luminosity-function models.
+
+2. **Build or load an AGN catalog.**
+   - For mock analyses, AGN positions and redshifts are generated and observational redshift errors are applied.
+   - Catalog incompleteness can be modeled with simple redshift cuts, an empty/complete catalog, luminosity-threshold completeness, and a Galactic-plane mask.
+   - For real analyses, the Quaia catalog is the primary catalog referenced by the current configuration.
+
+3. **Load GW sky maps and their distance ansatz.**
+   - GW sky maps are read using `ligo.skymap`.
+   - HEALPix/MOC sky-map pixels provide probability density plus luminosity-distance parameters (`DISTNORM`, `DISTMU`, `DISTSIGMA`).
+   - Only the chosen credible-level region (`SKYMAP_CL`, default 0.999) is integrated to reduce computation.
+
+4. **Convert GW distance information into redshift posteriors.**
+   - The code evaluates the luminosity-distance ansatz on a redshift grid using cosmological Jacobians.
+   - Both all-sky and completeness-weighted/Galactic-plane-masked redshift posteriors are produced.
+
+5. **Compute AGN-origin and alternative-origin evidences.**
+   - AGN-origin evidence is split into:
+     - AGN inside the observed catalog;
+     - AGN outside the observed catalog.
+   - The alternative population uses a cosmological redshift prior weighted by its merger-rate evolution.
+   - AGN redshift errors are incorporated through per-AGN redshift posterior distributions.
+
+6. **Apply GW selection effects.**
+   - Mock analyses use precomputed redshift-dependent detection probabilities.
+   - Real-data selection effects use the injection campaign machinery in `utilities/gw_selection_effects.py`.
+
+7. **Evaluate the posterior over \(f_{\rm AGN}\).**
+   - The likelihood is evaluated on 1000 points from `0.0001` to `0.9999`.
+   - Results are stored as an `.npz` file together with a JSON metadata record containing the configuration used.
+
+## Inference model
+
+For each GW event, the implementation constructs three evidence terms:
+
+- \(S_{\rm AGN,in}\): evidence that the event originated from an AGN represented in the catalog;
+- \(S_{\rm AGN,out}\): evidence for an AGN-origin event whose host is not represented in the catalog;
+- \(S_{\rm alt}\): evidence under the alternative/background population.
+
+The event likelihood is then evaluated as a mixture controlled by \(f_{\rm AGN}\), with a separate correction for the different detection efficiencies of the AGN and alternative populations.
+
+Conceptually, the per-event mixture has the form
+
+\[
+\mathcal{L}(f_{\rm AGN})
+\propto
+f_{\rm AGN}(S_{\rm AGN,in}+S_{\rm AGN,out})
++
+(1-f_{\rm AGN})S_{\rm alt},
+\]
+
+with the implementation expressing the same mixture relative to the alternative evidence and applying selection-efficiency normalization.
+
+The code explicitly distinguishes **catalog completeness** from **sky coverage**. The current Galactic-plane treatment masks \(|b|\le 10^\circ\), so the completeness-weighted calculation is not a general arbitrary survey-footprint implementation yet.
+
+## Repository layout
+
+```text
+darksirenpop/
+├── bash_scripts/
+│   ├── get_paramcombs.py
+│   ├── grid_sweep.sh
+│   ├── rerun_missing.sh
+│   ├── run_sweep.sh
+│   └── sweep_gw_generation.sh
+│
+├── data/
+│   ├── em/
+│   │   ├── luminosity_calibration.ipynb
+│   │   └── qlf.ipynb
+│   └── gw/
+│       ├── PE_samples.ipynb
+│       ├── check_lvk_hyperparamposts.ipynb
+│       ├── evaluate_skymaps.py
+│       ├── make_skymaps.py
+│       └── make_skymap_stats.py
+│
+├── hypersampler/
+│   ├── __init__.py
+│   ├── hypersampler.py
+│   ├── cornerplot_hypersamples.ipynb
+│   └── rate_posteriors.ipynb
+│
+├── mock/
+│   ├── __init__.py
+│   ├── calculate_mock_skymap_stats.py
+│   ├── check_mock_gw_properties.ipynb
+│   ├── combine_posterior_samples.py
+│   ├── compare_PdetEM_methods.ipynb
+│   ├── make_mock_gws.py
+│   ├── toy_model.ipynb
+│   └── pdet/
+│       ├── calc_mock_pdet.ipynb
+│       └── pdet_z_0.3.npy ... pdet_z_1.0.npy
+│
+├── plotting_scripts/
+│   ├── mock_analysis_plots.ipynb
+│   ├── plot_data.ipynb
+│   ├── posteriors.ipynb
+│   └── presentation_plots.ipynb
+│
+├── utilities/
+│   ├── __init__.py
+│   ├── custom_math_priors.py
+│   ├── default_globals.py
+│   ├── gw_selection_effects.py
+│   ├── mockdata_utils.py
+│   ├── priors.py
+│   ├── qlf_utils.py
+│   ├── redshift_utils.py
+│   └── utils.py
+│
+├── __init__.py
+├── config.py
+├── likelihood.py
+├── requirements.txt
+├── run.py
+├── worker.py
+└── README.md
+```
+
+## Requirements
+
+The repository pins a large scientific Python environment in `requirements.txt`. Important packages include:
+
+- Python scientific stack: NumPy, SciPy, pandas, matplotlib
+- Astronomy: Astropy, `astropy-healpix`, HEALPix/`healpy`
+- GW/LVK ecosystem: `ligo.skymap`, LALSuite, `gwpy`, `gwosc`, `gwdatafind`, GraceDB/LIGO utilities
+- Sampling/inference: `emcee`, `ptemcee`, ArviZ
+- Data formats: HDF5 (`h5py`), Zarr, FITS-related tooling
+- Performance: Numba, Dask
+- Analysis/visualization: `corner`, Plotly, Jupyter
+
+The current `requirements.txt` also includes packages used by the broader research environment. In particular, `utilities/gw_selection_effects.py` imports `popsummary.PopulationResult`; make sure the corresponding `popsummary` package/environment is available even though it is not listed as a direct requirement in the repository's requirements file.
+
+The repository also relies on the `ligo-skymap-from-samples` and `ligo-skymap-stats` command-line programs for parts of the mock-data workflow.
+
+## Data and path configuration
+
+### Central path configuration
+
+Most paths are defined in:
+
+```text
+utilities/default_globals.py
+```
+
+The current file assumes the repository and external data live under:
+
+```text
+/home/lucas/Documents/PhD/
+```
+
+including directories for:
+
+- the repository itself;
+- generated mock/analysis data;
+- GW data;
+- EM/AGN data;
+- LVK population-summary files;
+- posterior samples;
+- sky maps;
+- evaluated sky-map redshift posteriors.
+
+**Change these paths before running the code on another machine.**
+
+The main paths include:
+
+```python
+REPOSITORY_DIR
+GENERATED_DATA_DIR
+GW_DATA_DIR
+EM_DATA_DIR
+AGN_DIST_DIR
+JSON_DIR
+FAGN_POST_DIR
+MOCK_DATA_DIR
+REWEIGHT_GWTC5_DIR
+REWEIGHT_GWTC5_SAMPLES
+REWEIGHT_GWTC5_SKYMAPS
+REWEIGHT_GWTC5_SKYMAP_STATS
+REWEIGHT_GWTC5_SKYMAP_EVALS
+PLOT_DIR
+MOCK_DIR
+PDET_DIR
+```
+
+There are also explicit paths to the LVK hyperposterior, injection campaign, GWOSC event summary, V90 CDF, Quaia/DR16Q data, and JSON files containing real-data posterior/sky-map paths.
+
+### Required external data
+
+Depending on the workflow, the code expects some or all of:
+
+- AGN redshift-distribution `.npy` files;
+- Quaia catalog CSV/FITS data;
+- GW posterior samples and/or sky maps;
+- evaluated GW redshift posteriors;
+- LVK population hyperposterior files;
+- GW injection samples;
+- V90 CDF data;
+- mock-data directories;
+- mock GW detection-probability tables.
+
+The repository itself is therefore **not a self-contained runnable dataset**.
+
+## Installation
+
+A typical setup is:
+
+```bash
+git clone https://github.com/LucasPouw/darksirenpop.git
+cd darksirenpop
+
+python -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Then:
+
+1. Install/activate any additional environment-specific packages such as `popsummary`.
+2. Install the LIGO/HEALPix command-line tools required by the mock workflow if they are not already provided by the environment.
+3. Edit `utilities/default_globals.py` so all data paths point to valid local files.
+4. Verify that the relevant AGN distributions, catalogs, GW data, injection data, and mock selection-effect files exist.
+
+A quick import test is useful before launching a long analysis:
+
+```bash
+python -c "import darksirenpop; from darksirenpop.config import Config; print(Config())"
+```
+
+Because `Config` imports `default_globals.py`, this test also exposes missing-path/dependency problems early.
+
+## Running the main inference
+
+The main entry point is:
+
+```bash
+python darksirenpop/run.py
+```
+
+`run.py` constructs an `argparse` interface automatically from the fields in `Config`. Every `Config` field can therefore generally be overridden using a lower-case command-line option.
+
+For example:
+
+```bash
+python darksirenpop/run.py \
+    --threading True \
+    --n_workers 2 \
+    --verbose True \
+    --n_realizations 10 \
+    --agn_zprior 46.5 \
+    --lum_thresh zero_upto_cut \
+    --agn_zcut 1.0 \
+    --agn_zerror quaia \
+    --assume_perfect_redshift False \
+    --mask_galactic_plane True \
+    --zmin 0.000001 \
+    --zmax 10 \
+    --zthr 1.0 \
+    --add_nagn_to_cat 10000
+```
+
+The exact data paths and catalog/mocks must already be configured.
+
+### What `run.py` does
+
+1. Creates a `Config`.
+2. Parses command-line overrides.
+3. Calls `Config.finalize()`.
+4. Runs `worker.run_worker(cfg)`.
+5. Saves the resulting log likelihood array to an `.npz` file.
+6. Appends the complete configuration and timestamp to `METADATA_PATH`.
+
+The saved posterior file contains:
+
+```python
+true_fagns
+log_likelihood
+```
+
+where `log_likelihood` has shape:
+
+```text
+(n_f_agn_grid_points, n_realizations)
+```
+
+and the \(f_{\rm AGN}\) grid is stored in `cfg.LOG_LLH_X_AX`.
+
+## Mock-data workflow
+
+The mock pipeline is designed to generate synthetic AGN-associated and alternative-origin GW events, construct GW posterior samples/sky maps, evaluate those sky maps in redshift, and then feed the resulting products into the population likelihood.
+
+### 1. Generate mock GW events
+
+Use:
+
+```bash
+python mock/make_mock_gws.py \
+    --run_id 1 \
+    --agndist 46.5 \
+    --ngw 3000 \
+    --zcut 1.0 \
+    --make-skymaps
+```
+
+Important arguments:
+
+- `--run_id`: realization identifier;
+- `--agndist`: AGN luminosity/redshift-distribution model; current choices are `44.5`, `45.5`, and `46.5`;
+- `--ngw`: number of candidate GW events;
+- `--zcut`: observational redshift cut;
+- `--fagn`: optional injected AGN fraction; otherwise sampled randomly;
+- `--npostsamps`: posterior samples per event;
+- `--ncpu`: CPUs used when making sky maps.
+
+For each realization, the script creates a directory similar to:
+
+```text
+mock_gws_agndist_<AGNDIST>_ngw_<NGW>_zmax_<ZMAX>_zcut_<ZCUT>_LVKvols/
+└── output_run_<RUN_ID>_fagn_<FAGN>/
+    ├── posterior_samples/
+    │   ├── agn/
+    │   └── alt/
+    ├── skymaps/
+    │   ├── agn/
+    │   └── alt/
+    └── true_gw_coords/
+        ├── agn/
+        └── alt/
+```
+
+The mock generator:
+
+- samples true source redshifts from an AGN or alternative population;
+- samples isotropic sky positions;
+- perturbs the true Cartesian position using a V90-derived localization scale;
+- applies the observational redshift cut;
+- produces posterior samples in RA, Dec, luminosity distance, comoving distance, and redshift;
+- optionally invokes `ligo-skymap-from-samples`.
+
+### 2. Combine posterior sample files
+
+The mock generator initially writes one HDF5 file per GW. `mock/combine_posterior_samples.py` combines those files into:
+
+```text
+posterior_samples/samples_agn.h5
+posterior_samples/samples_alt.h5
+```
+
+and deletes the original per-event directories only after a successful combination.
+
+### 3. Calculate sky-map statistics
+
+`mock/calculate_mock_skymap_stats.py` loops over mock realizations and calls:
+
+```bash
+ligo-skymap-stats
+```
+
+to produce 90%-credible-region and cosmological sky-map statistics.
+
+### 4. Evaluate sky maps in redshift
+
+Run:
+
+```bash
+python data/gw/evaluate_skymaps.py --root <MOCK_ROOT>
+```
+
+The evaluator produces, for each mock realization/type:
+
+```text
+skymaps_evaluated/
+├── agn/
+│   ├── zpost_gpmask_False_skymapcl_0.999_cmapnside_64.h5
+│   └── zpost_gpmask_True_skymapcl_0.999_cmapnside_64.h5
+└── alt/
+    ├── zpost_gpmask_False_skymapcl_0.999_cmapnside_64.h5
+    └── zpost_gpmask_True_skymapcl_0.999_cmapnside_64.h5
+```
+
+The two variants are:
+
+- **full sky:** no Galactic-plane completeness weighting;
+- **completeness weighted:** currently equivalent to masking \(|b|\le10^\circ\).
+
+### 5. Run population inference
+
+Point `MOCKDATA_ROOT` at the resulting mock-data root and run `run.py`.
+
+For each realization, `likelihood.py`:
+
+- constructs the mock AGN catalog;
+- computes AGN redshift posteriors;
+- builds redshift-dependent population priors;
+- calculates normalizations and selection efficiencies;
+- evaluates event-level evidences;
+- combines the events into a likelihood over \(f_{\rm AGN}\).
+
+## Real-data workflow
+
+The real-data path is controlled by:
+
+```python
+Config.REAL_DATA = True
+```
+
+The current implementation expects real GW sky-map paths to be provided through:
+
+```text
+REAL_SKYMAP_JSON_PATH
+```
+
+and evaluated redshift posteriors through:
+
+```text
+REAL_ZPOSTS_JSON_PATH
+REAL_CW_ZPOSTS_JSON_PATH
+```
+
+The intended sequence is:
+
+1. Prepare/reweight the real GW posterior samples and sky maps.
+2. Generate the JSON mapping between event identifiers and sky-map files.
+3. Run `data/gw/evaluate_skymaps.py --real-data`.
+4. Run `darksirenpop/run.py --real_data True` with the desired AGN luminosity threshold, AGN redshift prior, merger-rate model, and catalog settings.
+
+A representative command structure is:
+
+```bash
+python darksirenpop/run.py \
+    --real_data True \
+    --threading False \
+    --n_realizations 1 \
+    --agn_zprior 46.5 \
+    --lum_thresh 46.5 \
+    --agn_zerror quaia \
+    --agn_zcut 3.0 \
+    --mask_galactic_plane True \
+    --merger_rate madau \
+    --rate_parameters '{"b": 3.3, "c": 2.55, "d": 6.1}' \
+    --catalog_path <QUAIA_CATALOG> \
+    --metadata_path <METADATA_JSON> \
+    --label realdata
+```
+
+The repository's `bash_scripts/run_sweep.sh` shows the intended real-data sweep pattern over:
+
+- merger-rate model;
+- AGN redshift-prior luminosity threshold;
+- catalog luminosity threshold.
+
+## Hyperparameter sampling
+
+`hypersampler/hypersampler.py` uses `emcee` to sample a four-dimensional parameter space:
+
+```text
+(b, c, d, f_AGN)
+```
+
+where `b`, `c`, and `d` parameterize the Madau--Dickinson merger-rate model:
+
+\[
+R(z) \propto \frac{(1+z)^b}
+{1+\left((1+z)/c\right)^d}.
+\]
+
+The sampler supports:
+
+### Uniform prior
+
+```text
+b     ∈ [-10, 10]
+c     ∈ [1, 3.5]
+d     ∈ [0, 10]
+f_AGN ∈ [0, 1]
+```
+
+### Gaussian rate prior
+
+The current Gaussian prior is centered on:
+
+```text
+b = 3.3
+c = 2.55
+d = 6.1
+```
+
+with standard deviations:
+
+```text
+σ_b = 0.2
+σ_c = 0.09
+σ_d = 0.2
+```
+
+and a uniform prior on \(f_{\rm AGN}\in[0,1]\).
+
+Example:
+
+```bash
+python hypersampler/hypersampler.py \
+    --ncpu 8 \
+    --prior gaussian \
+    --lthresh 46.5 \
+    --nwalkers 100 \
+    --nsteps 10000
+```
+
+The sampler uses HDF5 `emcee` backends under the generated-data directory and can resume from an existing backend.
+
+## Parameter sweeps
+
+The `bash_scripts/` directory contains research-run helpers rather than portable, generic CLI wrappers.
+
+### `grid_sweep.sh`
+
+Runs a small AGN redshift-error / redshift-cut sweep and calls `run.py` for each grid point.
+
+### `rerun_missing.sh`
+
+Computes the missing combinations from a 50×50 grid of:
+
+- AGN redshift error;
+- AGN redshift cut;
+
+by comparing the expected grid against an existing JSON result file, then runs only missing jobs.
+
+### `get_paramcombs.py`
+
+Performs the same type of missing-combination bookkeeping in Python and prints missing `(AGN_ZERROR, AGN_ZCUT)` pairs.
+
+### `run_sweep.sh`
+
+Runs real-data analyses over combinations of:
+
+- merger-rate model;
+- AGN redshift-prior luminosity threshold;
+- catalog luminosity threshold.
+
+### `sweep_gw_generation.sh`
+
+Contains batch loops for generating large numbers of mock GW realizations.
+
+**Important:** these scripts contain author-specific absolute paths and assumptions about output filenames. Treat them as templates and edit them before use.
+
+## Outputs
+
+### Main posterior output
+
+`run.py` writes an `.npz` file under `POST_DIR` containing:
+
+```python
+true_fagns
+log_likelihood
+```
+
+The filename is based on the analysis mode and job ID, with a timestamp.
+
+### Metadata
+
+Each run is appended to the JSON file specified by:
+
+```python
+Config.METADATA_PATH
+```
+
+Each entry records:
+
+```json
+{
+  "filename": "...",
+  "timestamp": "...",
+  "config": {
+    "...": "..."
+  }
+}
+```
+
+This is important for reproducing parameter sweeps and for identifying which configuration generated a result.
+
+### Intermediate products
+
+Depending on the workflow, the analysis creates:
+
+- AGN redshift-distribution `.npy` files;
+- mock GW posterior-sample HDF5 files;
+- GW FITS sky maps;
+- sky-map statistics `.dat` files;
+- evaluated GW redshift posteriors in HDF5/NumPy;
+- real-data posterior/evidence JSON files;
+- MCMC sampler backends;
+- plots and notebook-generated figures.
+
+## Important configuration options
+
+The main configuration is the `Config` dataclass in `config.py`.
+
+### Data mode
+
+```python
+REAL_DATA = False
+```
+
+Set to `True` for the real-data workflow.
+
+### Sky maps
+
+```python
+USE_SKYMAPS = True
+SKYMAP_CL = 0.999
+```
+
+The current likelihood implementation explicitly raises `NotImplementedError` if sky maps are disabled, so sky-map inference is the supported/tested route.
+
+### Redshift range
+
+```python
+ZMIN = 1e-6
+ZMAX = 10
+AGN_ZMAX = 10
+AGN_ZCUT = 3.0
+```
+
+### AGN redshift prior
+
+Supported conceptual choices include:
+
+```text
+positive_redshift
+uniform_comoving_volume
+44.5
+45.0
+45.5
+46.0
+46.5
+```
+
+The luminosity-threshold choices use precomputed AGN redshift distributions from `AGN_DIST_DIR` and append the configured QLF model, currently defaulting to `kulkarni`.
+
+### Catalog completeness
+
+`LUM_THRESH` supports:
+
+```text
+44.5
+45.0
+45.5
+46.0
+46.5
+zero
+zero_upto_cut
+inf
+```
+
+where the last three correspond to complete, complete-until-a-redshift-cut, and empty-catalogue cases.
+
+### AGN redshift uncertainty
+
+```python
+AGN_ZERROR = 'quaia'
+```
+
+Other supported modes include:
+
+- `False` for perfect redshifts;
+- a numeric value for a common redshift uncertainty;
+- `'quaia'` to sample errors from the Quaia catalog.
+
+### Merger-rate model
+
+```text
+madau
+madau_lvk_MAP
+lowZ_sfr
+uniform
+```
+
+For `madau`, parameters are passed through:
+
+```python
+RATE_PARAMETERS = {"b": ..., "c": ..., "d": ...}
+```
+
+### Galactic-plane mask
+
+```python
+MASK_GALACTIC_PLANE = True
+```
+
+The current implementation removes/masks the region:
+
+```text
+|Galactic latitude| <= 10 degrees
+```
+
+### GW selection threshold
+
+`ZTHR` controls which mock detection-probability curve is loaded. Precomputed mock files exist for thresholds from `0.3` through `1.0` in increments of `0.1`.
+
+If:
+
+```python
+ZTHR = np.inf
+```
+
+the mock selection function is effectively disabled (`PDET = 1`).
+
+## Implementation notes
+
+### `config.py`
+
+`Config.finalize()` derives the analysis state from the user-facing parameters. It:
+
+- creates the cosmology;
+- builds the \(f_{\rm AGN}\) likelihood grid;
+- determines the redshift-integration grid from the smallest AGN redshift error;
+- loads AGN redshift distributions;
+- builds Quaia completeness bins;
+- selects the merger-rate evolution;
+- configures GW detection probabilities;
+- determines paths to the real/mock GW data.
+
+The redshift integration grid is adaptive to AGN redshift uncertainty, with a minimum of 1024 intervals.
+
+### `likelihood.py`
+
+This is the core inference implementation.
+
+The main pieces are:
+
+- `get_gw_zpost()` — loads/interpolates GW redshift posteriors;
+- `calculate_evidence()` — calculates AGN-in-catalog, AGN-out-of-catalog, and alternative evidences for one GW;
+- `prepare_functions()` — constructs redshift priors, completeness, and Jacobians;
+- `calculate_normalizations()` — computes AGN normalization and GW selection efficiencies;
+- `process_one_fagn()` — executes the complete likelihood calculation for one realization.
+
+The implementation uses Romberg integration (`scipy.integrate.romb`) on grids whose lengths are chosen to be compatible with that integration scheme.
+
+### `worker.py`
+
+`run_worker()` evaluates independent realizations either serially or with `ProcessPoolExecutor`. The result is an array of log likelihoods with one column per realization.
+
+### `utilities/redshift_utils.py`
+
+Provides:
+
+- fast cosmological interpolators;
+- redshift cuts;
+- time-dilation corrections;
+- merger-rate models;
+- uniform-comoving-volume/source-frame priors;
+- luminosity-distance/redshift Jacobians;
+- luminosity-distance posterior ansatz functions.
+
+The module precomputes cubic-spline interpolators for comoving distance, luminosity distance, and \(H(z)\) over \(0\le z\le10\).
+
+### `utilities/mockdata_utils.py`
+
+Implements the mock AGN catalog machinery:
+
+- redshift error sampling;
+- luminosity-threshold completeness;
+- redshift selection;
+- Galactic latitude selection;
+- vectorized AGN redshift posterior construction;
+- filename/run-ID handling.
+
+AGN redshift posteriors are modeled as truncated-normal measurement distributions multiplied by the configured AGN redshift prior and evaluated on the global redshift integration grid.
+
+### `utilities/gw_selection_effects.py`
+
+This module is more tightly coupled to the external LVK data environment. It:
+
+- loads an LVK population hyperposterior;
+- extracts MAP mass/spin/redshift hyperparameters;
+- constructs a BBH mass population;
+- defines spin distributions;
+- reads GW injection data;
+- calculates detection-efficiency factors (`alpha`) for the alternative population.
+
+Because this module reads the external hyperposterior and injection file at import time, missing those files can prevent even importing the module.
+
+### `utilities/qlf_utils.py`
+
+Contains luminosity-function and AGN redshift-distribution machinery, including the coefficient tables and evolution functions used for the Kulkarni and related QLF parameterizations.
+
+### `utilities/priors.py` and `custom_math_priors.py`
+
+These modules contain the population-prior machinery used across the research notebooks and selection-effect calculations. They are substantially larger than the main runtime modules and include specialized BBH mass/population probability functions and mathematical prior helpers.
+
+### `utilities/utils.py`
+
+General numerical/plotting helpers include:
+
+- distribution sampling by inverse CDF;
+- Gaussian/truncated-normal PDFs;
+- spherical-coordinate sampling/conversion;
+- memory diagnostics;
+- posterior normalization;
+- plotting defaults;
+- event/run-name utilities.
+
+## Known limitations and caveats
+
+This repository is research code rather than a packaged application. The following points are especially important:
+
+1. **Absolute paths are present.**  
+   `utilities/default_globals.py` is tied to the author's filesystem layout. Several shell scripts also contain absolute paths.
+
+2. **External data are required.**  
+   The Git repository does not contain the complete GW/AGN datasets required for the full analyses.
+
+3. **`popsummary` is imported but not pinned here.**  
+   Ensure the external package/environment used to read the LVK hyperposterior is installed.
+
+4. **Real-data sky-map inference is the supported likelihood route.**  
+   `USE_SKYMAPS=False` currently raises `NotImplementedError`.
+
+5. **The completeness map is currently simplified.**  
+   Although the configuration contains `CMAP_PATH`, the current implementation uses a hard-coded Galactic-plane mask in important paths rather than a fully general completeness map.
+
+6. **The mock generator is intentionally simplified.**  
+   Mock localization is generated from V90-derived Gaussian Cartesian perturbations and is not a full detector-level GW parameter-estimation simulation.
+
+7. **Mock and real-data file conventions are strict.**  
+   Many pieces infer event IDs from filename suffixes. Renaming intermediate files can break discovery.
+
+8. **Memory use can be high.**  
+   AGN redshift posteriors are evaluated as an AGN-by-redshift array. The source code explicitly notes that this can become memory-intensive.
+
+9. **Parallel execution is process-based.**  
+   `worker.py` uses `ProcessPoolExecutor`. The configuration also sets OpenMP thread counts to one when threading is enabled to reduce oversubscription.
+
+10. **Random seeds are not persisted by default.**  
+    Mock realizations and parallel inference processes use NumPy randomness; the code currently notes that per-process seeds are not saved.
+
+11. **Several scripts are analysis-specific.**  
+    Notebook and sweep code often encodes a particular scientific run rather than a reusable public API.
+
+12. **The current codebase has no automated test suite visible in the repository tree.**  
+    Validation is largely performed through notebooks, mock-data checks, normalization checks, and research scripts.
+
+13. **The repository's existing README is empty.**  
+    This document is therefore intended to serve as the first comprehensive user/developer guide.
+
+## Development and analysis notebooks
+
+The repository includes notebooks that document intermediate scientific work:
+
+### EM / AGN
+
+- `data/em/luminosity_calibration.ipynb`
+- `data/em/qlf.ipynb`
+
+These support luminosity/QLF calibration and AGN redshift-distribution work.
+
+### GW data
+
+- `data/gw/PE_samples.ipynb`
+- `data/gw/check_lvk_hyperparamposts.ipynb`
+
+These inspect GW posterior samples and LVK population hyperposteriors.
+
+### Mock analyses
+
+- `mock/check_mock_gw_properties.ipynb`
+- `mock/compare_PdetEM_methods.ipynb`
+- `mock/toy_model.ipynb`
+- `mock/pdet/calc_mock_pdet.ipynb`
+
+These validate mock GW properties, compare electromagnetic detection/selection treatments, explore simplified models, and calculate mock GW detection probabilities.
+
+### Hyperparameter inference
+
+- `hypersampler/cornerplot_hypersamples.ipynb`
+- `hypersampler/rate_posteriors.ipynb`
+
+These inspect MCMC output and rate-parameter posteriors.
+
+### Plotting
+
+- `plotting_scripts/mock_analysis_plots.ipynb`
+- `plotting_scripts/plot_data.ipynb`
+- `plotting_scripts/posteriors.ipynb`
+- `plotting_scripts/presentation_plots.ipynb`
+
+These notebooks generate analysis and presentation figures from intermediate/output products.
+
+## Reproducibility checklist
+
+Before running a long analysis, verify:
+
+- [ ] The repository is installed/importable.
+- [ ] `requirements.txt` is installed in the intended environment.
+- [ ] The external `popsummary` dependency is available.
+- [ ] `utilities/default_globals.py` has been adapted to the local filesystem.
+- [ ] Quaia/AGN data are present if using catalog inference.
+- [ ] Required AGN redshift-distribution `.npy` files are present.
+- [ ] GW sky maps/posterior samples are present.
+- [ ] Evaluated GW redshift-posteriors exist or have been generated.
+- [ ] The LVK injection campaign is present for real selection effects.
+- [ ] The LVK hyperposterior is present for the selection-effect population model.
+- [ ] Mock Pdet tables exist for the requested `ZTHR`.
+- [ ] `METADATA_PATH` points to a writable JSON file.
+- [ ] `POST_DIR` points to a writable output directory.
+- [ ] The desired randomization/reproducibility strategy is documented.
+- [ ] A small one-realization test has completed before launching a grid.
+
+## Suggested first test
+
+For a new environment, start with one small mock realization rather than the full research grid:
+
+```bash
+python mock/make_mock_gws.py \
+    --run_id 1 \
+    --agndist 46.5 \
+    --ngw 10 \
+    --zcut 1.0 \
+    --npostsamps 100 \
+    --make-skymaps
+```
+
+Then evaluate the resulting sky maps:
+
+```bash
+python data/gw/evaluate_skymaps.py --root <MOCK_ROOT>
+```
+
+Finally run `run.py` with:
+
+```text
+N_REALIZATIONS=1
+NGW appropriate to the mock root
+VERBOSE=True
+```
+
+This catches path, dependency, sky-map, HDF5, and configuration problems before committing to a large parallel run.
+
+## Citation
+
+If this repository is used in a scientific publication, cite the associated paper/project and the external datasets/models used by the analysis, including the relevant LVK, Quaia, luminosity-function, and GW sky-map/injection resources.
+
+A repository-level citation entry should be added here once the associated paper or DOI is finalized.
+
+## License
+
+No explicit `LICENSE` file is present in the repository tree inspected for this README. Until a license is added by the project owner, treat the repository as **all rights reserved** and do not assume that the code is licensed for redistribution or commercial use.
+
+---
+
+### Maintainer notes
+
+The codebase is currently best understood as a research-analysis repository with three layers:
+
+1. **Scientific infrastructure:** `utilities/`, `config.py`, `likelihood.py`
+2. **Execution/data pipelines:** `run.py`, `worker.py`, `mock/`, `data/gw/`, `bash_scripts/`
+3. **Scientific exploration and presentation:** `data/em/`, `hypersampler/`, and `plotting_scripts/`
+
+For future maintainability, the highest-impact improvements would be to replace absolute paths with a user configuration file/environment variables, isolate external data loading from module import time, add a small automated test suite for the redshift/Jacobian/normalization functions, and document the provenance of every external dataset and model used by the likelihood.
