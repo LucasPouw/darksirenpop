@@ -170,61 +170,6 @@ spinpop_MAP_joint_prob_func = lambda s1phi, s2phi, s1r, s2r, cost1, cost2: log_j
 
 
 ###################################################
-# SETUP THE REDSHIFT POPULATION MODELS
-###################################################
-
-def get_normed_zpop(zpop_unnorm, norm_ax):
-    return lambda z: zpop_unnorm(z) / romb(zpop_unnorm(norm_ax), dx=np.diff(norm_ax)[0])
-
-
-def get_agn_outofcat_pop(lum, agn_dist_dir, zmax):
-    filename = f'{agn_dist_dir}/agn_redshift_pdf_{lum}_kulkarni.npy'
-    z, n = np.load(filename)
-    agndist = interp1d(z, n, bounds_error=False, fill_value=0)
-    zpop_unnorm = lambda z: time_dilation_correction(z) * z_cut(z, zcut=zmax) * agndist(z)
-    zpop_norm = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
-    return zpop_norm
-
-
-def get_alt_pop(zmax=10, rate_model='madau', rate_parameters={}):
-    if rate_model == 'madau':
-        merger_rate_model = merger_rate_madau_dickinson
-        redshift_model_kwargs = rate_parameters
-    elif rate_model == 'madau_lvk_MAP':
-        merger_rate_model = merger_rate_madau_dickinson
-        redshift_model_kwargs = {'b': 3.027636508120894, 'c': 3.1826719462323076, 'd': 7.039509800907652}  # GWTC-5
-    elif rate_model == 'lowZ_sfr':
-        merger_rate_model = merger_rate_lowZ_sfr
-        redshift_model_kwargs = rate_parameters
-    
-    zpop_unnorm = lambda z: uniform_comoving_prior(z) * time_dilation_correction(z) * merger_rate(z, merger_rate_model, **redshift_model_kwargs) * z_cut(z, zcut=zmax)
-    zpop_norm = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
-    return zpop_norm
-
-
-def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_mass_model, alt_rate_parameters):
-
-    ### Redshift ###
-    if callable(zpop):
-        z_pop = zpop
-    elif zpop == 'alt':
-        z_pop = get_alt_pop(zmax=zmax, rate_model=alt_rate_model, rate_parameters=alt_rate_parameters)
-    elif zpop.split('_')[0] == 'emptycat':
-        z_pop = get_agn_outofcat_pop(lum=zpop.split('_')[1], agn_dist_dir=agn_dist_dir, zmax=zmax)
-    else:  # zpop is the filename
-        z_temp, p_temp = np.load(zpop)
-        zpop_unnorm = interp1d(z_temp, p_temp, bounds_error=False, fill_value=0)
-        z_pop = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
-
-    ### Masses ###
-    m_pop = lambda primary, secondary: joint_mass_model.joint_prob(primary, secondary).detach().cpu().numpy()
-
-    ### Spins ###
-    # TODO: add something like + np.log(spinpop_MAP_joint_prob_func(*spins))
-    return np.log(z_pop(z)) + np.log(m_pop(m1, m2))
-
-
-###################################################
 # CALCULATE ALPHA WITH INJECTION CAMPAIGN
 ###################################################
 
@@ -252,9 +197,85 @@ with h5py.File(injections_path, 'r') as obj:
     spins_inject = (spin1r, spin1theta, spin1phi, spin2r, spin2theta, spin2phi)
 
     lnprob = obj['events']['lnpdraw_mass1_source_mass2_source_redshift_spin1_magnitude_spin1_polar_angle_spin1_azimuthal_angle_spin2_magnitude_spin2_polar_angle_spin2_azimuthal_angle'][:]
+UNIF_COMVOL_TDIL_EVAL_INJECT = uniform_comoving_prior(redshift_inject) * time_dilation_correction(redshift_inject)
+MASSPOP_MAP_EVAL_INJECT = masspop_MAP.joint_prob(mass1_source_inject, mass2_source_inject).detach().cpu().numpy()
 
 
-def get_alpha_alt(snr_thr, far_thr, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+###################################################
+# SETUP THE REDSHIFT POPULATION MODELS
+###################################################
+
+def get_normed_zpop(zpop_unnorm, norm_ax):
+    return lambda z: zpop_unnorm(z) / romb(zpop_unnorm(norm_ax), dx=np.diff(norm_ax)[0])
+
+
+def get_agn_outofcat_pop(lum, agn_dist_dir, zmax):
+    filename = f'{agn_dist_dir}/agn_redshift_pdf_{lum}_kulkarni.npy'
+    z, n = np.load(filename)
+    agndist = interp1d(z, n, bounds_error=False, fill_value=0)
+    zpop_unnorm = lambda z: time_dilation_correction(z) * z_cut(z, zcut=zmax) * agndist(z)
+    zpop_norm = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
+    return zpop_norm
+
+
+def get_alt_pop(zmax=10, rate_model='madau', rate_parameters={}, use_precalc=False):
+    if rate_model == 'madau':
+        merger_rate_model = merger_rate_madau_dickinson
+        redshift_model_kwargs = rate_parameters
+    elif rate_model == 'madau_lvk_MAP':
+        merger_rate_model = merger_rate_madau_dickinson
+        redshift_model_kwargs = {'b': 3.027636508120894, 'c': 3.1826719462323076, 'd': 7.039509800907652}  # GWTC-5
+    elif rate_model == 'lowZ_sfr':
+        merger_rate_model = merger_rate_lowZ_sfr
+        redshift_model_kwargs = rate_parameters
+
+    if use_precalc:
+        norm_ax = np.linspace(0, zmax, 1024+1)
+        zpop_unnorm = lambda z: uniform_comoving_prior(z) * time_dilation_correction(z) * merger_rate(z, merger_rate_model, **redshift_model_kwargs) * z_cut(z, zcut=zmax)
+        norm = romb(zpop_unnorm(norm_ax), dx=np.diff(norm_ax)[0])
+        zpop_norm = lambda z: UNIF_COMVOL_TDIL_EVAL_INJECT * merger_rate(z, merger_rate_model, **redshift_model_kwargs) * z_cut(z, zcut=zmax) / norm
+    else:
+        zpop_unnorm = lambda z: uniform_comoving_prior(z) * time_dilation_correction(z) * merger_rate(z, merger_rate_model, **redshift_model_kwargs) * z_cut(z, zcut=zmax)
+        zpop_norm = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
+    return zpop_norm
+
+
+def ln_ppop(m1, m2, z, spins, zpop, alt_rate_model, agn_dist_dir, zmax, joint_mass_model, alt_rate_parameters, use_precalc_z_alt, use_precalc_mass):
+
+    ### Redshift ###
+    if callable(zpop):
+        z_pop = zpop
+    elif zpop == 'alt':
+        z_pop = get_alt_pop(zmax=zmax, rate_model=alt_rate_model, rate_parameters=alt_rate_parameters, use_precalc=use_precalc_z_alt)
+    elif zpop.split('_')[0] == 'emptycat':
+        z_pop = get_agn_outofcat_pop(lum=zpop.split('_')[1], agn_dist_dir=agn_dist_dir, zmax=zmax)
+    else:  # zpop is the filename
+        z_temp, p_temp = np.load(zpop)
+        zpop_unnorm = interp1d(z_temp, p_temp, bounds_error=False, fill_value=0)
+        z_pop = get_normed_zpop(zpop_unnorm, norm_ax=np.linspace(0, zmax, 1024+1))
+
+    zpop_eval = z_pop(z)
+
+    ### Masses ###
+    if use_precalc_mass:
+        mpop_eval = MASSPOP_MAP_EVAL_INJECT
+    else:
+        m_pop = lambda primary, secondary: joint_mass_model.joint_prob(primary, secondary).detach().cpu().numpy()
+        mpop_eval = m_pop(m1, m2)
+
+    ### Spins ###
+    # TODO: add something like + np.log(spinpop_MAP_joint_prob_func(*spins))
+    
+    result = np.log(zpop_eval) + np.log(mpop_eval)
+    return result
+
+
+###################################################
+# CALCULATE DETECTION EFFICIENCY
+###################################################
+
+
+def get_alpha_alt(snr_thr, far_thr, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10, use_precalc_z_alt=False, use_precalc_mass=False):
     sel = ((snr_inject > snr_thr) | (far_inject < far_thr))
     lnp_alt = ln_ppop(m1=mass1_source_inject, 
                       m2=mass2_source_inject, 
@@ -265,12 +286,14 @@ def get_alpha_alt(snr_thr, far_thr, alt_rate_model, agn_dist_dir, joint_mass_mod
                       alt_rate_model=alt_rate_model, 
                       joint_mass_model=joint_mass_model, 
                       alt_rate_parameters=alt_rate_parameters, 
-                      zmax=zmax)
+                      zmax=zmax,
+                      use_precalc_z_alt=use_precalc_z_alt, 
+                      use_precalc_mass=use_precalc_mass)
     alpha_alt = np.sum( weights[sel] * np.exp(lnp_alt[sel] - lnprob[sel]) ) / total_generated
     return alpha_alt
 
 
-def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10, use_precalc_z_alt=False, use_precalc_mass=False):
     sel = ((snr_inject > snr_thr) | (far_inject < far_thr))
     lnp_agn = ln_ppop(m1=mass1_source_inject, 
                       m2=mass2_source_inject, 
@@ -281,19 +304,23 @@ def get_alpha_agn(snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, join
                       alt_rate_model=alt_rate_model, 
                       joint_mass_model=joint_mass_model, 
                       alt_rate_parameters=alt_rate_parameters,
-                      zmax=zmax)
+                      zmax=zmax,
+                      use_precalc_z_alt=use_precalc_z_alt, 
+                      use_precalc_mass=use_precalc_mass)
     alpha_agn = np.sum( weights[sel] * np.exp(lnp_agn[sel] - lnprob[sel]) ) / total_generated
     return alpha_agn
 
 
-def alpha(fagn, snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10):
+def alpha(fagn, snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_mass_model=masspop_MAP, alt_rate_parameters={}, zmax=10, use_precalc_z_alt=False, use_precalc_mass=False):
     alpha_alt = get_alpha_alt(snr_thr=snr_thr, 
                               far_thr=far_thr, 
                               alt_rate_model=alt_rate_model, 
                               agn_dist_dir=agn_dist_dir, 
                               joint_mass_model=joint_mass_model, 
                               alt_rate_parameters=alt_rate_parameters, 
-                              zmax=zmax)
+                              zmax=zmax,
+                              use_precalc_z_alt=use_precalc_z_alt, 
+                              use_precalc_mass=use_precalc_mass)
     alpha_agn = get_alpha_agn(snr_thr=snr_thr, 
                               far_thr=far_thr, 
                               agn_zpop=agn_zpop, 
@@ -301,5 +328,7 @@ def alpha(fagn, snr_thr, far_thr, agn_zpop, alt_rate_model, agn_dist_dir, joint_
                               agn_dist_dir=agn_dist_dir, 
                               joint_mass_model=joint_mass_model, 
                               alt_rate_parameters=alt_rate_parameters,
-                              zmax=zmax)
+                              zmax=zmax,
+                              use_precalc_z_alt=use_precalc_z_alt, 
+                              use_precalc_mass=use_precalc_mass)
     return alpha_alt, alpha_agn, fagn * alpha_agn + (1 - fagn) * alpha_alt

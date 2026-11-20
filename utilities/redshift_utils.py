@@ -5,7 +5,7 @@ from astropy.cosmology import z_at_value
 import astropy.units as u
 
 from scipy.interpolate import CubicSpline
-from scipy.special import gammaincc
+from scipy.special import gammainc
 
 
 # def fast_z_at_value(function, values, num=1000):
@@ -70,7 +70,7 @@ def merger_rate_madau_dickinson(z, b = 2.7, c = 2.9, d = 5.6):
 
 def merger_rate_lowZ_sfr(z, Z=0.3, b = 2.7, c = 2.9, d = 5.6):
     'Fishbach+2018'
-    fZ = gammaincc(0.84, (Z**2) * 10**(0.3 * z))
+    fZ = gammainc(0.84, (Z**2) * 10**(0.3 * z))
     return merger_rate_madau_dickinson(z, b, c, d) * fZ
 
 
@@ -166,10 +166,7 @@ def LOS_lumdist_ansatz(dl, distnorm, distmu, distsigma, out=None):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import time
-
     from line_profiler import LineProfiler
-
- 
     
 
     # def LOS_lumdist_ansatz(dl, distnorm, distmu, distsigma, out=None):
@@ -197,15 +194,15 @@ if __name__ == '__main__':
         
     #     return out
 
-    N = 10000
-    x = np.linspace(100, 1000, N)
-    z = np.linspace(1e-6, 10, 16000)[:,np.newaxis]
-    dl = _DL_INTERP(z)
+    # N = 10000
+    # x = np.linspace(100, 1000, N)
+    # z = np.linspace(1e-6, 10, 16000)[:,np.newaxis]
+    # dl = _DL_INTERP(z)
     
-    lp = LineProfiler()
-    lp.add_function(LOS_lumdist_ansatz)
-    lp.run('LOS_lumdist_ansatz(dl=dl, distnorm=np.linspace(100, 1000, N), distmu=np.linspace(100, 1000, N), distsigma=np.linspace(100, 1000, N))')
-    lp.print_stats()
+    # lp = LineProfiler()
+    # lp.add_function(LOS_lumdist_ansatz)
+    # lp.run('LOS_lumdist_ansatz(dl=dl, distnorm=np.linspace(100, 1000, N), distmu=np.linspace(100, 1000, N), distsigma=np.linspace(100, 1000, N))')
+    # lp.print_stats()
 
     
 

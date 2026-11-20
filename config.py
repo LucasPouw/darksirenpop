@@ -226,7 +226,7 @@ class Config:
         if self.AGN_ZERROR == 'quaia':
             self.quaia_errors = pd.read_csv(self.CATALOG_PATH)["redshift_quaia_err"]
 
-        self.Z_INTEGRAL_AX = self.get_z_integral_ax()
+        self.Z_INTEGRAL_AX = np.linspace(self.ZMIN, self.ZMAX, 1024+1)  #self.get_z_integral_ax()  # FIXME: This should be taken consistent with the pre-calculated AGN posteriors!
 
         # -------- MERGER RATE ALT GWS --------
         if self.MERGER_RATE == 'madau':

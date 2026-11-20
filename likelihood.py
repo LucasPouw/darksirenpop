@@ -407,7 +407,7 @@ def calculate_normalizations(cfg,
 
     else:
         sum_of_all_agn_posteriors = np.sum(agn_posterior_dset, axis=0)
-        nagn_norm = romb(sum_of_all_agn_posteriors, dx=dz)
+        nagn_norm = romb(sum_of_all_agn_posteriors * jacobian, dx=dz)
 
         if nagn_norm == 0:
             agn_population_prior_normalization = romb(fc_and_rate_weighted_agn_background_dist * jacobian, dx=dz)
@@ -420,8 +420,9 @@ def calculate_normalizations(cfg,
             if not cfg.REAL_DATA:
                 alpha_agn = romb(pdet * agn_population_prior_rate_weighted * jacobian, dx=dz) / agn_population_prior_normalization
     
-    if cfg.REAL_DATA:  # FIXME 26 Aug 2026: alpha_agn calculation seems wrong when changing ZMAX from 10 to 6, but only when using a catalogue, not when using empty catalogue. 
+    if cfg.REAL_DATA:  # FIXME: 26 Aug 2026: alpha_agn calculation seems wrong when changing ZMAX from 10 to 6, but only when using a catalogue, not when using empty catalogue. 
                         # UPDATE 7 Sep 2026: Could have been issue with calculating alpha in my notebook, not in this code. TODO: Check if the bug is still there!
+                        # TODO: UPDATE 13 Nov 2026: Claude says this is because the pre-calculated AGN z-posteriors are on a grid up to z=10, which is not updated when changing ZMAX. Fair enough, not going to check this now.
         if cfg.LUM_THRESH == 'inf' or cfg.AGN_ZCUT == 0:  # The empty-catalogue case
             alpha_alt, alpha_agn, _ = alpha(fagn=cfg.LOG_LLH_X_AX, snr_thr=cfg.SNR_THR, far_thr=cfg.FAR_THR, agn_zpop=f'emptycat_{cfg.AGN_ZPRIOR.split('_')[0]}', 
                                             alt_rate_model=cfg.MERGER_RATE, alt_rate_parameters=cfg.RATE_PARAMETERS, zmax=cfg.ZMAX, agn_dist_dir=cfg.AGN_DIST_DIR)
@@ -572,9 +573,9 @@ def process_one_fagn(fagn_idx, cfg):
     del agn_posterior_dset  # Free up the memory asap
     
     ### Evaluate the likelihood ###
-    S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
-    S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
-    S_alt = S_alt[~np.isnan(S_alt)]
+    # S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
+    # S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
+    # S_alt = S_alt[~np.isnan(S_alt)]
 
     loglike = np.log(cfg.LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
     total_loglike = np.sum(loglike, axis=0)  # Sum over all GWs

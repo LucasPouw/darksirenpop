@@ -1,7 +1,6 @@
 ############################################################################################################
-# This code was made very quickly and inefficiently to get some samples running. It contains a memory leak
-# and it recomputes way more stuff than necessary during each MCMC step. However, it was good enough for a
-# search over a small parameter space. FIXME!
+# This code was made very quickly and inefficiently to get some samples. 
+# It recomputes way more stuff than necessary during each MCMC step.
 ############################################################################################################
 
 
@@ -23,6 +22,7 @@ from darksirenpop.utilities.gw_selection_effects import get_alpha_alt
 from darksirenpop.likelihood import get_dz_and_jacobian
 from darksirenpop.run import Config
 import argparse
+import time
 
 
 ndim = 4
@@ -104,7 +104,7 @@ def log_likelihood(theta, LTHRESH_STRING, GW_EVIDENCE_DICT, return_spline=False)
     cfg.LUM_THRESH = LTHRESH_STRING
     cfg.MASK_GALACTIC_PLANE = True
     cfg.ASSUME_PERFECT_REDSHIFT = False
-    cfg.AGN_ZERROR = "quaia"
+    cfg.AGN_ZERROR = 0.1  # This number should not do anything when sampling over the alternative population #"quaia"
     cfg.CORRECT_TIME_DILATION = True
     cfg.MERGER_RATE = "madau"
     cfg.LABEL = "samplinggwtc5"
@@ -127,53 +127,40 @@ def log_likelihood(theta, LTHRESH_STRING, GW_EVIDENCE_DICT, return_spline=False)
     PEprior_func = lambda z: uniform_comoving_prior(z, cosmo=cfg.COSMO)
     PEprior = PEprior_func(cfg.Z_INTEGRAL_AX)
     dz, jacobian = get_dz_and_jacobian(cfg)
-
-    # FIXME: This can probably be pre-computed and interpolated, and it might be the cause of the memory leak!
-    alpha_alt = get_alpha_alt(snr_thr=cfg.SNR_THR,
-                              far_thr=cfg.FAR_THR,
-                              alt_rate_model=cfg.MERGER_RATE,
-                              alt_rate_parameters=cfg.RATE_PARAMETERS,
-                              zmax=cfg.ZMAX,
-                              agn_dist_dir=cfg.AGN_DIST_DIR)
     
     alpha_agn = GW_EVIDENCE_DICT[gw_keys[0]]["alpha_agn"]  # Same for all events
+
+    background_alt_distribution = uniform_comoving_prior(cfg.Z_INTEGRAL_AX, cosmo=cfg.COSMO)
+    alt_redshift_population_prior = background_alt_distribution * p_rate_of_z_alt
+    alt_redshift_population_prior /= romb(alt_redshift_population_prior * jacobian, dx=dz)
+
+    # FIXME: This might be the cause of the memory leak!
+    alpha_alt = get_alpha_alt(snr_thr=cfg.SNR_THR,
+                            far_thr=cfg.FAR_THR,
+                            alt_rate_model=cfg.MERGER_RATE,
+                            alt_rate_parameters=cfg.RATE_PARAMETERS,
+                            zmax=cfg.ZMAX,
+                            agn_dist_dir=cfg.AGN_DIST_DIR,
+                            use_precalc_mass=True,  # The mass population hyperparameters do not change
+                            use_precalc_z_alt=True)  # This precalculates uniform_comoving_volume() * time_dilation() on the detected injections
 
     ### Calculate the integrals in the likelihood ###
     Ngws = len(gw_fnames)  # Due to selection effects not always the same number
     S_agn_incat = np.zeros(Ngws)
     S_agn_outofcat = np.zeros(Ngws)
     S_alt = np.zeros(Ngws)
-
     for gw_idx, _ in enumerate(gw_fnames):
         gwkey = gw_keys[gw_idx]
 
         with open(cfg.REAL_ZPOSTS_JSON_PATH, "r") as f:
             gw_zpost_path_dict = json.load(f)
         gw_zpost_path = gw_zpost_path_dict[gwkey]
-
-        with open(cfg.REAL_CW_ZPOSTS_JSON_PATH, "r") as f:
-            gw_zpost_cw_path_dict = json.load(f)
-        gw_zpost_cw_path = gw_zpost_cw_path_dict[gwkey]
-
         z, p = np.load(gw_zpost_path)
-        z_cw, p_cw = np.load(gw_zpost_cw_path)
-
         gwpost_interp = CubicSpline(z, p, extrapolate=False)
         gw_redshift_posterior_marginalized_evaluated = gwpost_interp(cfg.Z_INTEGRAL_AX)
         gw_redshift_posterior_marginalized_evaluated[np.isnan(gw_redshift_posterior_marginalized_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
 
-        if not cfg.MASK_GALACTIC_PLANE:
-            gw_redshift_posterior_marginalized_cw_evaluated = gw_redshift_posterior_marginalized_evaluated.copy()
-        else:
-            gwpost_interp_cw = CubicSpline(z_cw, p_cw, extrapolate=False)
-            gw_redshift_posterior_marginalized_cw_evaluated = gwpost_interp_cw(cfg.Z_INTEGRAL_AX)
-            gw_redshift_posterior_marginalized_cw_evaluated[np.isnan(gw_redshift_posterior_marginalized_cw_evaluated)] = 0  # NaNs outside extrapolation range changed to zeros
-
-        background_alt_distribution = uniform_comoving_prior(cfg.Z_INTEGRAL_AX, cosmo=cfg.COSMO)
-        alt_redshift_population_prior = background_alt_distribution * p_rate_of_z_alt
-        alt_redshift_population_prior /= romb(alt_redshift_population_prior * jacobian, dx=dz)
         salt = romb(y=gw_redshift_posterior_marginalized_evaluated / PEprior * alt_redshift_population_prior * jacobian, dx=dz)
-
         sagn_incat = GW_EVIDENCE_DICT[gwkey]['S_agn_incat']
         sagn_outofcat = GW_EVIDENCE_DICT[gwkey]['S_agn_outcat']
 
@@ -182,9 +169,9 @@ def log_likelihood(theta, LTHRESH_STRING, GW_EVIDENCE_DICT, return_spline=False)
         S_alt[gw_idx] = salt
 
     ### Evaluate the likelihood ###
-    S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
-    S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
-    S_alt = S_alt[~np.isnan(S_alt)]
+    # S_agn_incat = S_agn_incat[~np.isnan(S_agn_incat)]
+    # S_agn_outofcat = S_agn_outofcat[~np.isnan(S_agn_outofcat)]
+    # S_alt = S_alt[~np.isnan(S_alt)]
 
     loglike = np.log(cfg.LOG_LLH_X_AX[None,:] * (S_agn_incat[:,None] + S_agn_outofcat[:,None] - S_alt[:,None]) + S_alt[:,None])
     loglike = np.sum(loglike, axis=0)  # Sum over all GWs
@@ -222,8 +209,9 @@ def main():
 
     zmodel = "madau"
     thresh = f"{LTHRESH_STRING}_kulkarni"
-    label = "_zleq3_final_kmax5_gwtc5_luminformed_smoothcorr"
-    agn_json_path = f"{JSON_DIR}/real_output_{zmodel}{label}.json"
+    label = "_review"  #"_zleq3_final_kmax5_gwtc5_luminformed_smoothcorr"
+    # agn_json_path = f"{JSON_DIR}/real_output_{zmodel}{label}.json"
+    agn_json_path = f"{JSON_DIR}/realdata_posterior_{zmodel}{label}.json"
 
     with open(agn_json_path, "r") as f:
         data = json.load(f)
@@ -249,7 +237,7 @@ def main():
     else:
         raise ValueError(f"Did not recognize prior: {PRIOR}. Also, how did you get past the parser?")
 
-    with Pool(processes=ncores, maxtasksperchild=50) as pool:
+    with Pool(processes=ncores) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, pool=pool, backend=backend,
                                         args=(log_prior, LTHRESH_STRING, GW_EVIDENCE_DICT, False))
 

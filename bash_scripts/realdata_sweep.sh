@@ -15,7 +15,7 @@ for rate in 'madau'; do
         for catalog_lum_thresh in 'inf' $agn_prior_lum; do
             
             ~/Documents/PhD/.venv/bin/python darksirenpop/run.py \
-                --label 'testing3' \
+                --label 'review' \
                 --rate_parameters '{"b": 3.3, "c": 2.55, "d": 6.1}' \
                 --catalog_path '/home/lucas/Documents/PhD/generated_data/em/quaia_zleq3_withlumcorr.csv' \
                 --merger_rate $rate \
@@ -31,7 +31,7 @@ for rate in 'madau'; do
                 --agn_zcut 3.0 \
                 --zmin 0.000001 \
                 --zmax 10 \
-                --metadata_path /home/lucas/Documents/PhD/generated_data/jsons/metadata_test.json \
+                --metadata_path /home/lucas/Documents/PhD/generated_data/jsons/metadata_reviewy.json \
                 --real_data True
         done
     done

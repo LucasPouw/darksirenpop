@@ -32,6 +32,24 @@ def sample_from_distribution(pdf, x_grid, n_samples):
     return np.interp(u, cdf, x_grid)
 
 
+# def sample_from_distribution(pdf, x_grid, n_samples, rng):
+#     x_grid = np.asarray(x_grid, dtype=float)
+#     if not np.all(np.diff(x_grid) > 0):
+#         raise ValueError("x_grid must be strictly increasing")
+
+#     y = np.clip(pdf(x_grid), 0, None)
+
+#     widths = np.diff(x_grid)
+#     area = np.sum((y[:-1] + y[1:]) / 2 * widths)
+#     if area == 0:
+#         raise ValueError("PDF integrates to zero over the provided grid.")
+
+#     cdf = np.insert(np.cumsum((y[:-1] + y[1:]) / 2 * widths), 0, 0.0)
+#     cdf /= cdf[-1]
+
+#     return np.interp(rng.random(n_samples), cdf, x_grid)
+
+
 def print_memory_usage(scope=None):
     """
     Print all variables in the given scope and their memory usage in MiB.
