@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "darksirenpop"
+version = "0.1.0"
+description = "EM-informed GW population inference of the fraction of BBH mergers hosted by AGN"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "tqdm",
+    "numba",
+    "h5py",
+    "astropy",
+    "astropy-healpix",
+    "healpy",
+    "ligo.skymap",
+    "emcee",
+    "popsummary",
+    "torch",
+]
+
+[project.optional-dependencies]
+notebooks = ["ipykernel", "corner", "bilby", "line_profiler"]
+
+# The repository root *is* the `darksirenpop` package, so map it explicitly.
+# Scripts outside these packages (data/gw/*.py, bash_scripts/) are run directly, not imported.
+[tool.setuptools]
+package-dir = { "darksirenpop" = "." }
+packages = [
+    "darksirenpop",
+    "darksirenpop.utilities",
+    "darksirenpop.mock",
+    "darksirenpop.hypersampler",
+]

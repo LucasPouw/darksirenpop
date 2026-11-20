@@ -7,3 +7,5 @@ __pycache__
 *.fits
 *.npy
 *h5
+*.egg-info/
+.venv/
